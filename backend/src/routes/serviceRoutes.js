@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('../config/cloudinary');
-const { createService, getServicesByBusiness, deleteService } = require('../controllers/serviceController');
+const { createService, getServicesByBusiness, deleteService, updateService } = require('../controllers/serviceController');
 
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
