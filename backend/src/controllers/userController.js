@@ -13,9 +13,16 @@ async function loginUser(req, res) { /* Código en authController */ }
 async function getUserProfile(req, res) {
   const userId = req.params.id;
   const userRole = req.params.role;
-  // Agregamos las nuevas columnas a la consulta de negocio
-  const qClient = 'SELECT first_name, last_name, phone, profile_picture FROM client_profiles WHERE user_id = $1';
-  const qBusiness = 'SELECT representative_name, representative_last_name, phone, profile_picture, license_pdf_url, is_approved, shop_photos, latitude, longitude, address_notes FROM business_profiles WHERE user_id = $1';
+  
+  const qClient = 'SELECT c.*, u.email FROM client_profiles c JOIN users u ON c.user_id = u.id WHERE c.user_id = $1';
+  
+  // Unimos business_profiles con users para traer los horarios también
+  const qBusiness = `
+    SELECT b.*, u.opening_time, u.closing_time, u.working_days, u.email 
+    FROM business_profiles b 
+    JOIN users u ON b.user_id = u.id 
+    WHERE b.user_id = $1
+  `;
   
   const isBusiness = userRole === 'centro' || userRole === 'business';
   const queryText = isBusiness ? qBusiness : qClient;
@@ -48,26 +55,39 @@ async function updateProfilePhoto(req, res) {
   }
 }
 
-// Función de actualización mejorada para ambos roles
 async function updateProfile(req, res) {
   const userId = req.params.id;
-  const { role, firstName, lastName, phone, address_notes, latitude, longitude } = req.body;
+  const { 
+    role, firstName, lastName, phone, 
+    zone, street, building_number, business_category,
+    address_notes, latitude, longitude, shopPhotos,
+    businessName, licenseUrl
+  } = req.body;
+
   const isBusiness = role === 'centro' || role === 'business';
+  const fotosArray = Array.isArray(shopPhotos) ? shopPhotos : [];
 
   const queryClient = 'UPDATE client_profiles SET first_name = $1, last_name = $2, phone = $3 WHERE user_id = $4';
+  
   const queryBusiness = `
     UPDATE business_profiles 
     SET representative_name = $1, representative_last_name = $2, phone = $3, 
-        address_notes = $4, latitude = $5, longitude = $6 
-    WHERE user_id = $7`;
+        zone = $4, street = $5, building_number = $6, business_category = $7,
+        address_notes = $8, latitude = $9, longitude = $10, shop_photos = $11, 
+        business_name = $12, license_pdf_url = $13
+    WHERE user_id = $14`;
 
   try {
     if (isBusiness) {
-      await client.query(queryBusiness, [firstName, lastName, phone, address_notes, latitude, longitude, userId]);
+      await client.query(queryBusiness, [
+        firstName, lastName, phone, zone, street, building_number, 
+        business_category, address_notes, latitude, longitude, fotosArray, 
+        businessName, licenseUrl, userId
+      ]);
     } else {
       await client.query(queryClient, [firstName, lastName, phone, userId]);
     }
-    await logUserActivity(userId, 'Perfil actualizado');
+    await logUserActivity(userId, 'Perfil actualizado integralmente');
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error al actualizar perfil' });
@@ -119,10 +139,9 @@ async function getAllBusinesses(req, res) {
   }
 }
 
-// Nueva función para fotos del local
 async function updateShopPhotos(req, res) {
   const userId = req.params.id;
-  const { photos } = req.body; // Array de URLs
+  const { photos } = req.body; 
   try {
     await client.query('UPDATE business_profiles SET shop_photos = $1 WHERE user_id = $2', [photos, userId]);
     res.json({ success: true });
