@@ -1,9 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Alert, TextInput, Platform, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { AuraColors } from '../../constants/Colors';
+
+// Configuración de visualización de notificaciones
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true, // <-- Propiedad requerida agregada
+    shouldShowList: true,   // <-- Propiedad requerida agregada
+  }),
+});
 
 type CentroAura = { 
   id: string; business_name: string; representative_name: string; profile_picture: string; 
@@ -26,8 +40,9 @@ export default function ClientDashboard() {
   
   const [busqueda, setBusqueda] = useState<string>('');
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>('Todos');
+  const [enviandoCita, setEnviandoCita] = useState<boolean>(false); // Estado de carga visual
   
-  // ALGORITMO DE CALENDARIO Y HORARIOS
+  // Calendario
   const [citasReservadas, setCitasReservadas] = useState<{date: Date, duration: number}[]>([]);
   const [diasDisponibles, setDiasDisponibles] = useState<{fecha: string, diaStr: string, dObj: Date}[]>([]);
   const [fechaSeleccionada, setFechaSeleccionada] = useState<string>('');
@@ -36,7 +51,37 @@ export default function ClientDashboard() {
 
   const urlBase = 'https://aura-ukzs.onrender.com/api';
 
-  useEffect(() => { cargarPerfil(); }, []);
+  useEffect(() => { 
+    cargarPerfil(); 
+    registrarNotificacionesPush();
+  }, []);
+
+  const registrarNotificacionesPush = async () => {
+    const userId = await AsyncStorage.getItem('userId');
+    if (!userId || Platform.OS === 'web') return;
+
+    if (Device.isDevice) {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') return; // El usuario denegó los permisos
+
+      try {
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+        
+        // Guardamos el token en la base de datos de Aura
+        await fetch(`${urlBase}/users/push-token/${userId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: tokenData.data })
+        });
+      } catch (error) { console.log('Error Push:', error); }
+    }
+  };
 
   const cargarPerfil = async () => {
     const id = await AsyncStorage.getItem('userId');
@@ -71,14 +116,12 @@ export default function ClientDashboard() {
     } catch { Alert.alert('Error', 'Fallo al cargar el catálogo'); }
   };
 
-  // --- INICIA ALGORITMO DE CALENDARIO ---
   const prepararAgenda = async (servicio: ServicioAura) => {
     setServicioSeleccionado(servicio);
     setVistaActual('agendar');
     const businessId = centroSeleccionado?.id;
     
     try {
-      // 1. Obtener citas ocupadas del backend
       const res = await fetch(`${urlBase}/appointments/booked/${businessId}`);
       const data = await res.json();
       const booked = data.success ? data.data.map((b:any) => ({
@@ -87,7 +130,6 @@ export default function ClientDashboard() {
       })) : [];
       setCitasReservadas(booked);
 
-      // 2. Generar los próximos 14 días
       const dias = [];
       const hoy = new Date();
       for(let i = 0; i < 14; i++) {
@@ -108,11 +150,9 @@ export default function ClientDashboard() {
     setFechaSeleccionada(fechaStr);
     setHoraSeleccionada('');
     
-    // Validar si el negocio atiende este día de la semana
-    const diaSemana = dObj.getDay(); // 0 = Domingo
+    const diaSemana = dObj.getDay(); 
     const workingDaysStr = (centroSeleccionado?.working_days || '').toLowerCase();
     let cerrado = false;
-    // Si es domingo y su horario no dice "domingo" o "todos los dias", asumimos cerrado
     if (diaSemana === 0 && !workingDaysStr.includes('domingo') && !workingDaysStr.includes('todos los dias')) {
       cerrado = true;
     }
@@ -122,7 +162,6 @@ export default function ClientDashboard() {
       return;
     }
 
-    // Generar horas disponibles y cruzar con citas ocupadas
     const opening = centroSeleccionado?.opening_time || '09:00';
     const closing = centroSeleccionado?.closing_time || '20:00';
     const duration = servicio.duration_minutes || 30;
@@ -136,21 +175,18 @@ export default function ClientDashboard() {
     const isToday = fechaStr === `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2,'0')}-${now.getDate().toString().padStart(2,'0')}`;
     const currentMins = now.getHours() * 60 + now.getMinutes();
 
-    // Filtramos solo las citas de ESTE día
     const bookedToday = booked.filter(b => b.date.getFullYear() === dObj.getFullYear() && b.date.getMonth() === dObj.getMonth() && b.date.getDate() === dObj.getDate());
 
     for (let m = openMins; m + duration <= closeMins; m += 30) {
-      if (isToday && m <= currentMins + 30) continue; // No mostrar horas que ya pasaron hoy
+      if (isToday && m <= currentMins + 30) continue; 
 
       const slotStartMins = m;
       const slotEndMins = m + duration;
       let hasOverlap = false;
 
-      // Verificación estricta de cruce de horarios
       for (const b of bookedToday) {
          const bStartMins = b.date.getHours() * 60 + b.date.getMinutes();
          const bEndMins = bStartMins + b.duration;
-         // Si el inicio de nuestro slot está antes del fin de otra cita, Y nuestro fin está después del inicio de esa cita = HAY CHOQUE
          if (slotStartMins < bEndMins && slotEndMins > bStartMins) {
             hasOverlap = true; break;
          }
@@ -164,10 +200,12 @@ export default function ClientDashboard() {
     }
     setHorariosDisponibles(slots);
   };
-  // --- FIN ALGORITMO ---
 
   const solicitarCita = async () => {
     if (!fechaSeleccionada || !horaSeleccionada) { Alert.alert('Aviso', 'Selecciona un horario disponible del calendario'); return; }
+    
+    setEnviandoCita(true); // Mostrar indicador de carga
+    
     const idCliente = await AsyncStorage.getItem('userId');
     const fechaTurno = new Date(`${fechaSeleccionada}T${horaSeleccionada}:00`).toISOString();
 
@@ -181,11 +219,23 @@ export default function ClientDashboard() {
 
     try {
       const res = await fetch(urlBase + '/appointments/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cargaUtil) });
-      if ((await res.json()).success) {
-        Alert.alert('AURA', 'Solicitud de cita enviada al centro estético');
-        cargarMisReservas();
+      const data = await res.json();
+      setEnviandoCita(false);
+
+      if (data.success) {
+        // CONFIRMACIÓN VISUAL Y REDIRECCIÓN
+        Alert.alert(
+          '¡Reserva Solicitada con Éxito! ✅',
+          'Tu solicitud ha sido enviada y está en estado "Pendiente". Recibirás una notificación cuando el negocio la apruebe.',
+          [{ text: 'Ver Mis Reservas', onPress: () => cargarMisReservas() }]
+        );
+      } else {
+        Alert.alert('Error', data.error || 'No se pudo crear la reserva');
       }
-    } catch { Alert.alert('Error', 'Fallo de conexión'); }
+    } catch { 
+      setEnviandoCita(false);
+      Alert.alert('Error', 'Fallo de conexión'); 
+    }
   };
 
   const cargarMisReservas = async () => {
@@ -208,7 +258,7 @@ export default function ClientDashboard() {
   };
 
   const RastroEstado = ({ estado }: { estado: string }) => {
-    const pasos = [{ id: 'solicitada', icono: 'time', titulo: 'Solicitada' }, { id: 'aceptada', icono: 'wallet', titulo: 'Pendiente Pago' }, { id: 'confirmada', icono: 'checkmark-circle', titulo: 'Confirmada' }];
+    const pasos = [{ id: 'solicitada', icono: 'time', titulo: 'Pendiente' }, { id: 'aceptada', icono: 'wallet', titulo: 'Pago Pendiente' }, { id: 'confirmada', icono: 'checkmark-circle', titulo: 'Confirmada' }];
     let nivel = 0;
     if (estado === 'aceptada') nivel = 1;
     if (estado === 'confirmada') nivel = 2;
@@ -301,7 +351,6 @@ export default function ClientDashboard() {
     );
   }
 
-  // --- VISTA DE CALENDARIO Y HORARIOS ---
   if (vistaActual === 'agendar') {
     return (
       <ScrollView style={[estilos.contenedorPrincipal, estilos.scrollPadding]}>
@@ -346,8 +395,16 @@ export default function ClientDashboard() {
           <Text>Garantía de Reserva (10%): {(parseFloat(servicioSeleccionado?.price || '0') * 0.10).toFixed(2)} Bs</Text>
         </View>
 
-        <TouchableOpacity style={[estilos.botonReservar, (!fechaSeleccionada || !horaSeleccionada) && {backgroundColor: '#ccc'}]} onPress={solicitarCita}>
-          <Text style={estilos.textoBotonBlanco}>Enviar Solicitud al Negocio</Text>
+        <TouchableOpacity 
+          style={[estilos.botonReservar, (!fechaSeleccionada || !horaSeleccionada || enviandoCita) && {backgroundColor: '#ccc'}]} 
+          onPress={solicitarCita}
+          disabled={!fechaSeleccionada || !horaSeleccionada || enviandoCita}
+        >
+          {enviandoCita ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <Text style={estilos.textoBotonBlanco}>Confirmar y Enviar Solicitud</Text>
+          )}
         </TouchableOpacity>
         
         <TouchableOpacity style={estilos.botonVolver} onPress={() => setVistaActual('servicios_centro')}><Text style={estilos.textoBotonPrimario}>Cancelar</Text></TouchableOpacity>
@@ -368,9 +425,15 @@ export default function ClientDashboard() {
                 
                 <RastroEstado estado={res.status} />
 
+                {res.status === 'solicitada' && (
+                  <View style={{backgroundColor: '#fff3cd', padding: 10, borderRadius: 8, marginTop: 5}}>
+                    <Text style={{color: '#8a6d3b', textAlign: 'center'}}>⏳ Esperando que el negocio confirme la disponibilidad.</Text>
+                  </View>
+                )}
+
                 {res.status === 'aceptada' && (
                   <View style={estilos.boxPagos}>
-                    <Text style={{marginBottom: 10, textAlign: 'center', fontWeight: 'bold'}}>El centro aceptó. Paga para confirmar:</Text>
+                    <Text style={{marginBottom: 10, textAlign: 'center', fontWeight: 'bold'}}>El centro aceptó. Paga para asegurar tu lugar:</Text>
                     <TouchableOpacity style={[estilos.botonReservar, {backgroundColor: AuraColors.gold, marginBottom: 10}]} onPress={() => pagarReserva(res.id, res.reservation_fee)}>
                       <Text style={estilos.textoBotonBlanco}>Pagar solo Reserva ({res.reservation_fee} Bs)</Text>
                     </TouchableOpacity>
@@ -448,7 +511,6 @@ const estilos = StyleSheet.create({
   boxCotizacion: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 8, marginBottom: 15, borderWidth: 1, borderColor: AuraColors.gold },
   boxPagos: { marginTop: 15, padding: 15, backgroundColor: '#f0f8ff', borderRadius: 10, borderWidth: 1, borderColor: AuraColors.primary },
   
-  // Estilos del Calendario
   diaCaja: { paddingVertical: 12, paddingHorizontal: 15, backgroundColor: '#f0f0f0', borderRadius: 12, marginRight: 10, alignItems: 'center', width: 75, height: 75, justifyContent: 'center' },
   diaCajaActiva: { backgroundColor: AuraColors.primary },
   txtDia: { color: '#666', fontSize: 12, fontWeight: 'bold', textTransform: 'capitalize' },

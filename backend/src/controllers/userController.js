@@ -158,6 +158,18 @@ async function updateShopPhotos(req, res) {
   }
 }
 
+async function savePushToken(req, res) {
+  const client = require('../config/db');
+  try {
+    const { id } = req.params;
+    const { token } = req.body;
+    await client.query('UPDATE users SET push_token = $1 WHERE id = $2', [token, id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false });
+  }
+}
+
 module.exports = {
   registerUser,
   loginUser,
@@ -168,5 +180,6 @@ module.exports = {
   uploadNewLicense,
   updateBusinessProfile,
   getAllBusinesses,
-  updateShopPhotos
+  updateShopPhotos,
+  savePushToken
 };

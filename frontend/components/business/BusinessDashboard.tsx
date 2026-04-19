@@ -4,6 +4,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { AuraColors } from '../../constants/Colors';
 
 // IMPORTACIÓN CONDICIONAL DE WEBVIEW PARA EVITAR CRASHEOS EN LA WEB
@@ -11,6 +14,17 @@ let WebViewComp: any = null;
 if (Platform.OS !== 'web') {
   WebViewComp = require('react-native-webview').WebView;
 }
+
+// CONFIGURACIÓN DE NOTIFICACIONES PUSH
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 type ServicioAura = { id: string; name: string; description: string; price: string; duration_minutes: number; image_url: string; };
 type CitaAura = { 
@@ -61,6 +75,9 @@ export default function BusinessDashboard() {
     if (vista === 'catalogo') cargarCatalogo();
     if (vista === 'agenda') cargarAgenda();
     if (vista === 'horarios' || vista === 'perfil_negocio') cargarPerfilNegocio();
+    
+    // REGISTRAMOS EL CELULAR DEL NEGOCIO PARA QUE RECIBA ALERTAS
+    registrarNotificacionesPush();
   }, [vista]);
 
   // Escuchador Seguro para el Mapa en la Web
@@ -80,6 +97,32 @@ export default function BusinessDashboard() {
       return () => globalWindow.removeEventListener('message', handleWebMessage);
     }
   }, []);
+
+  const registrarNotificacionesPush = async () => {
+    const userId = await AsyncStorage.getItem('userId');
+    if (!userId || Platform.OS === 'web') return;
+
+    if (Device.isDevice) {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') return; 
+
+      try {
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+        
+        await fetch(`${urlBase}/users/push-token/${userId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: tokenData.data })
+        });
+      } catch (error) { console.log('Error Push:', error); }
+    }
+  };
 
   const cargarPerfilNegocio = async () => {
     const businessId = await AsyncStorage.getItem('userId');
@@ -268,7 +311,7 @@ export default function BusinessDashboard() {
       });
       const data = await res.json();
       if (data.success) {
-        Alert.alert('AURA', 'El cliente ha sido notificado del cambio de estado');
+        Alert.alert('AURA', 'El cliente ha sido notificado del cambio de estado mediante una alerta.');
         cargarAgenda();
       }
     } catch { Alert.alert('Error', 'Fallo al procesar el estado de la cita'); }
@@ -344,7 +387,6 @@ export default function BusinessDashboard() {
     </html>
   `;
 
-  // Apertura Segura para el PDF o Imagen
   const renderizarLicencia = (url: string) => {
     if (!url) return <Text style={styles.textoGris}>No se ha registrado ninguna licencia vigente.</Text>;
     
@@ -352,9 +394,13 @@ export default function BusinessDashboard() {
 
     const abrirArchivo = async () => {
       try {
-        await Linking.openURL(secureUrl);
+        if (Platform.OS === 'web') {
+          window.open(secureUrl, '_blank');
+        } else {
+          await Linking.openURL(secureUrl);
+        }
       } catch (e) {
-        Alert.alert("Aviso", "No se pudo abrir el enlace automáticamente.");
+        Alert.alert("Aviso", "No se pudo abrir el enlace.");
       }
     };
 
@@ -536,7 +582,6 @@ export default function BusinessDashboard() {
     }
   }
 
-  // --- OTRAS VISTAS ---
   if (vista === 'horarios') {
     return (
       <ScrollView style={styles.scroll}>

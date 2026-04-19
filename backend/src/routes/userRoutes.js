@@ -8,7 +8,7 @@ const cloudinary = require('../config/cloudinary');
 const { 
   registerUser, loginUser, getUserProfile, updateProfilePhoto, 
   updateProfile, deactivateAccount, uploadNewLicense, 
-  updateBusinessProfile, getAllBusinesses, updateShopPhotos 
+  updateBusinessProfile, getAllBusinesses, updateShopPhotos, savePushToken 
 } = require('../controllers/userController');
 
 // Configuración de Multer para subir fotos y PDFs a Cloudinary al instante
@@ -44,6 +44,7 @@ router.put('/profile/update/:id', updateProfile);
 router.put('/profile/deactivate/:id', deactivateAccount);
 router.put('/profile/license/:id', uploadNewLicense);
 router.put('/profile/:id', updateBusinessProfile); 
-router.get('/businesses', getAllBusinesses);      
+router.get('/businesses', getAllBusinesses);    
+router.put('/push-token/:id', savePushToken);  
 
 module.exports = router;
