@@ -86,7 +86,7 @@ export default function RegisterScreen() {
     }
 
     const isBusiness = role === 'centro';
-    const endpoint = isBusiness ? 'http://localhost:3000/api/auth/register/business' : 'http://localhost:3000/api/auth/register/client';
+    const endpoint = isBusiness ? 'http://192.168.1.213:3000/api/auth/register/business' : 'http://192.168.1.213:3000/api/auth/register/client';
 
     const basePayload = {
       email,
