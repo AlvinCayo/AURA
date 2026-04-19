@@ -7,15 +7,8 @@ import { AuraColors } from '../../constants/Colors';
 
 type ServicioAura = { id: string; name: string; description: string; price: string; duration_minutes: number; image_url: string; };
 type CitaAura = { 
-  id: string; 
-  client_name: string; 
-  client_last_name: string; 
-  service_name: string; 
-  appointment_date: string; 
-  status: string; 
-  total_price: string; 
-  reservation_fee: string; 
-  paid_amount: string; // <--- Agrega esta línea
+  id: string; client_name: string; client_last_name: string; service_name: string; 
+  appointment_date: string; status: string; total_price: string; reservation_fee: string; paid_amount: string; 
 };
 
 export default function BusinessDashboard() {
@@ -30,18 +23,25 @@ export default function BusinessDashboard() {
   const [catalogo, setCatalogo] = useState<Record<string, ServicioAura>>({});
   const [agenda, setAgenda] = useState<Record<string, CitaAura>>({});
 
-  // Estados para horarios
+  // Estados para horarios y perfil extendido
   const [horaApertura, setHoraApertura] = useState<string>('');
   const [horaCierre, setHoraCierre] = useState<string>('');
   const [diasTrabajo, setDiasTrabajo] = useState<string>('');
+  const [repName, setRepName] = useState('');
+  const [repLastName, setRepLastName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [addressNotes, setAddressNotes] = useState('');
+  const [lat, setLat] = useState('-16.5000');
+  const [lng, setLng] = useState('-68.1500');
+  const [shopPhotos, setShopPhotos] = useState<string[]>([]);
 
   const urlBase = 'https://aura-ukzs.onrender.com/api';
 
   useEffect(() => {
     if (vista === 'catalogo') cargarCatalogo();
     if (vista === 'agenda') cargarAgenda();
-    if (vista === 'horarios') cargarPerfilNegocio();
-  }, Array.of(vista));
+    if (vista === 'horarios' || vista === 'perfil_negocio') cargarPerfilNegocio();
+  }, [vista]);
 
   const cargarPerfilNegocio = async () => {
     const businessId = await AsyncStorage.getItem('userId');
@@ -53,9 +53,52 @@ export default function BusinessDashboard() {
         setHoraApertura(data.profile.opening_time || '09:00');
         setHoraCierre(data.profile.closing_time || '20:00');
         setDiasTrabajo(data.profile.working_days || 'Lunes a Sabado');
+        setRepName(data.profile.representative_name || '');
+        setRepLastName(data.profile.representative_last_name || '');
+        setPhone(data.profile.phone || '');
+        setAddressNotes(data.profile.address_notes || '');
+        setLat(data.profile.latitude?.toString() || '-16.5000');
+        setLng(data.profile.longitude?.toString() || '-68.1500');
+        setShopPhotos(data.profile.shop_photos || []);
       }
     } catch {
-      Alert.alert('Error', 'No se pudieron cargar tus horarios actuales');
+      Alert.alert('Error', 'No se pudo cargar el perfil');
+    }
+  };
+
+  const guardarPerfilCompleto = async () => {
+    const businessId = await AsyncStorage.getItem('userId');
+    try {
+      const res = await fetch(`${urlBase}/users/profile/update/${businessId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'business',
+          firstName: repName,
+          lastName: repLastName,
+          phone: phone,
+          address_notes: addressNotes,
+          latitude: parseFloat(lat),
+          longitude: parseFloat(lng)
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        Alert.alert('Éxito', 'Perfil actualizado correctamente');
+        setVista('inicio');
+      }
+    } catch {
+      Alert.alert('Error', 'No se pudo guardar el perfil');
+    }
+  };
+
+  const agregarFotoLocal = async () => {
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
+    if (!res.canceled && res.assets) {
+      // Aquí deberías subir la foto a Cloudinary y obtener la URL, por ahora la añadimos al array local
+      const newPhoto = res.assets[0].uri;
+      setShopPhotos([...shopPhotos, newPhoto]);
+      Alert.alert('AURA', 'Foto añadida a la galería del local');
     }
   };
 
@@ -113,8 +156,8 @@ export default function BusinessDashboard() {
   const seleccionarImagen = async () => {
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 1 });
     if (!res.canceled && res.assets) {
-      const primeraImagen = res.assets.shift();
-      if (primeraImagen) setImagenUri(primeraImagen.uri);
+      const primeraImagen = res.assets[0];
+      setImagenUri(primeraImagen.uri);
     }
   };
 
@@ -126,12 +169,8 @@ export default function BusinessDashboard() {
     fd.append('business_id', businessId || ''); fd.append('name', nombre); fd.append('description', descripcion); fd.append('price', precio); fd.append('duration_minutes', duracion);
 
     if (imagenUri && !imagenUri.startsWith('http')) {
-      if (Platform.OS === 'web') {
-        const resImg = await fetch(imagenUri); const blob = await resImg.blob(); fd.append('image', blob, 'foto.jpg');
-      } else {
-        const extension = imagenUri.split('.').pop() || 'jpg';
-        fd.append('image', { uri: imagenUri, name: 'servicio.' + extension, type: 'image/' + extension } as any);
-      }
+      const extension = imagenUri.split('.').pop() || 'jpg';
+      fd.append('image', { uri: imagenUri, name: 'servicio.' + extension, type: 'image/' + extension } as any);
     }
     const url = idEdicion ? urlBase + '/services/update/' + idEdicion : urlBase + '/services/create';
     const method = idEdicion ? 'PUT' : 'POST';
@@ -150,19 +189,49 @@ export default function BusinessDashboard() {
     } catch { Alert.alert('Error', 'Fallo al borrar'); }
   };
 
+  if (vista === 'perfil_negocio') {
+    return (
+      <ScrollView style={styles.scroll}>
+        <Text style={styles.sub}>Perfil del Establecimiento</Text>
+        <TextInput style={styles.input} placeholder="Nombre del Representante" value={repName} onChangeText={setRepName} />
+        <TextInput style={styles.input} placeholder="Apellidos" value={repLastName} onChangeText={setRepLastName} />
+        <TextInput style={styles.input} placeholder="Teléfono" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+        <TextInput style={styles.input} placeholder="Referencia de Dirección (ej. Cerca a la plaza)" value={addressNotes} onChangeText={setAddressNotes} />
+        
+        <Text style={{fontWeight: 'bold', marginTop: 10}}>Coordenadas (Latitud/Longitud)</Text>
+        <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+          <TextInput style={[styles.input, {flex: 0.48}]} value={lat} onChangeText={setLat} keyboardType="numeric" />
+          <TextInput style={[styles.input, {flex: 0.48}]} value={lng} onChangeText={setLng} keyboardType="numeric" />
+        </View>
+
+        <Text style={{fontWeight: 'bold', marginTop: 10}}>Galería del Local</Text>
+        <TouchableOpacity style={styles.btnSec} onPress={agregarFotoLocal}>
+          <Text style={styles.btnText}>Añadir Foto del Local</Text>
+        </TouchableOpacity>
+        <ScrollView horizontal style={{marginVertical: 10}}>
+          {shopPhotos.map((uri, index) => (
+            <Image key={index} source={{ uri }} style={{width: 100, height: 100, borderRadius: 10, marginRight: 10}} />
+          ))}
+        </ScrollView>
+
+        <TouchableOpacity style={styles.btnPri} onPress={guardarPerfilCompleto}>
+          <Text style={styles.btnText}>Guardar Cambios de Perfil</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.btnC} onPress={() => setVista('inicio')}><Text style={styles.btnTextC}>Cancelar</Text></TouchableOpacity>
+      </ScrollView>
+    );
+  }
+
   if (vista === 'horarios') {
     return (
       <ScrollView style={styles.scroll}>
         <Text style={styles.sub}>Configurar Mis Horarios</Text>
         <Text style={{marginBottom: 5, fontWeight: 'bold'}}>Hora de Apertura (ej. 09:00)</Text>
         <TextInput style={styles.input} value={horaApertura} onChangeText={setHoraApertura} />
-        
         <Text style={{marginBottom: 5, fontWeight: 'bold'}}>Hora de Cierre (ej. 20:00)</Text>
         <TextInput style={styles.input} value={horaCierre} onChangeText={setHoraCierre} />
-        
         <Text style={{marginBottom: 5, fontWeight: 'bold'}}>Días de Atención (ej. Lunes a Sábado)</Text>
         <TextInput style={styles.input} value={diasTrabajo} onChangeText={setDiasTrabajo} />
-
         <TouchableOpacity style={styles.btnPri} onPress={guardarHorarios}><Text style={styles.btnText}>Guardar Horarios</Text></TouchableOpacity>
         <TouchableOpacity style={styles.btnC} onPress={() => setVista('inicio')}><Text style={styles.btnTextC}>Cancelar</Text></TouchableOpacity>
       </ScrollView>
@@ -204,9 +273,7 @@ export default function BusinessDashboard() {
     );
   }
 
-  // ... (Las vistas de 'formulario' y 'catalogo' se mantienen igual, al final retornamos el menú principal)
   if (vista === 'formulario') {
-    // Retorno de formulario anterior
     return (
       <ScrollView style={styles.scroll}>
         <Text style={styles.sub}>{idEdicion ? 'Actualizar Servicio' : 'Nuevo Servicio'}</Text>
@@ -223,7 +290,6 @@ export default function BusinessDashboard() {
   }
 
   if (vista === 'catalogo') {
-    // Retorno del catálogo anterior
     return (
       <ScrollView style={styles.scroll}>
         <Text style={styles.sub}>Mis Servicios Publicados</Text>
@@ -248,6 +314,10 @@ export default function BusinessDashboard() {
   return (
     <View style={styles.container}>
       <View style={styles.header}><Text style={styles.headerT}>AURA BUSINESS</Text></View>
+      <TouchableOpacity style={styles.menuItem} onPress={() => setVista('perfil_negocio')}>
+        <Ionicons name="person-outline" size={30} color={AuraColors.primary} />
+        <Text style={styles.menuText}>Perfil del Negocio</Text>
+      </TouchableOpacity>
       <TouchableOpacity style={styles.menuItem} onPress={() => setVista('horarios')}>
         <Ionicons name="time" size={30} color={AuraColors.primary} />
         <Text style={styles.menuText}>Configurar Horarios</Text>

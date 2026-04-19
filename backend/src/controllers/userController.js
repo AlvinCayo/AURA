@@ -13,8 +13,9 @@ async function loginUser(req, res) { /* Código en authController */ }
 async function getUserProfile(req, res) {
   const userId = req.params.id;
   const userRole = req.params.role;
+  // Agregamos las nuevas columnas a la consulta de negocio
   const qClient = 'SELECT first_name, last_name, phone, profile_picture FROM client_profiles WHERE user_id = $1';
-  const qBusiness = 'SELECT representative_name, representative_last_name, phone, profile_picture, license_pdf_url, is_approved FROM business_profiles WHERE user_id = $1';
+  const qBusiness = 'SELECT representative_name, representative_last_name, phone, profile_picture, license_pdf_url, is_approved, shop_photos, latitude, longitude, address_notes FROM business_profiles WHERE user_id = $1';
   
   const isBusiness = userRole === 'centro' || userRole === 'business';
   const queryText = isBusiness ? qBusiness : qClient;
@@ -47,19 +48,29 @@ async function updateProfilePhoto(req, res) {
   }
 }
 
+// Función de actualización mejorada para ambos roles
 async function updateProfile(req, res) {
   const userId = req.params.id;
-  const { role, firstName, lastName, phone } = req.body;
+  const { role, firstName, lastName, phone, address_notes, latitude, longitude } = req.body;
+  const isBusiness = role === 'centro' || role === 'business';
+
   const queryClient = 'UPDATE client_profiles SET first_name = $1, last_name = $2, phone = $3 WHERE user_id = $4';
-  const queryBusiness = 'UPDATE business_profiles SET representative_name = $1, representative_last_name = $2, phone = $3 WHERE user_id = $4';
-  const queryText = (role === 'centro' || role === 'business') ? queryBusiness : queryClient;
+  const queryBusiness = `
+    UPDATE business_profiles 
+    SET representative_name = $1, representative_last_name = $2, phone = $3, 
+        address_notes = $4, latitude = $5, longitude = $6 
+    WHERE user_id = $7`;
 
   try {
-    await client.query(queryText, [firstName, lastName, phone, userId]);
-    await logUserActivity(userId, 'Perfil modificado');
+    if (isBusiness) {
+      await client.query(queryBusiness, [firstName, lastName, phone, address_notes, latitude, longitude, userId]);
+    } else {
+      await client.query(queryClient, [firstName, lastName, phone, userId]);
+    }
+    await logUserActivity(userId, 'Perfil actualizado');
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, error: 'Error al actualizar perfil' });
   }
 }
 
@@ -108,6 +119,18 @@ async function getAllBusinesses(req, res) {
   }
 }
 
+// Nueva función para fotos del local
+async function updateShopPhotos(req, res) {
+  const userId = req.params.id;
+  const { photos } = req.body; // Array de URLs
+  try {
+    await client.query('UPDATE business_profiles SET shop_photos = $1 WHERE user_id = $2', [photos, userId]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false });
+  }
+}
+
 module.exports = {
   registerUser,
   loginUser,
@@ -117,5 +140,6 @@ module.exports = {
   deactivateAccount,
   uploadNewLicense,
   updateBusinessProfile,
-  getAllBusinesses
+  getAllBusinesses,
+  updateShopPhotos
 };
