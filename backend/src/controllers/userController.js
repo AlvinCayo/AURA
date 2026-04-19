@@ -104,4 +104,43 @@ async function uploadNewLicense(req, res) {
   }
 }
 
-module.exports = { getUserProfile, updateProfilePhoto, updateProfile, deactivateAccount, logUserActivity, uploadNewLicense };
+async function updateBusinessProfile(req, res) {
+  const client = require('../config/db');
+  try {
+    const { id } = req.params;
+    const { opening_time, closing_time, working_days } = req.body;
+    const queryText = "UPDATE users SET opening_time = $1, closing_time = $2, working_days = $3 WHERE id = $4 RETURNING *";
+    const valores = Array.of(opening_time, closing_time, working_days, id);
+    const result = await client.query(queryText, valores);
+    res.status(200).json({ success: true, data: result.rows.shift() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Error al actualizar horarios' });
+  }
+}
+
+async function getAllBusinesses(req, res) {
+  const client = require('../config/db');
+  try {
+    const queryText = "SELECT id, first_name, profile_picture, opening_time, closing_time, working_days FROM users WHERE role = 'business'";
+    const result = await client.query(queryText);
+    res.status(200).json({ success: true, data: Object.assign({}, result.rows) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Error al obtener negocios' });
+  }
+}
+
+async function updateBusinessProfile(req, res) {
+  const client = require('../config/db');
+  try {
+    const { id } = req.params;
+    const { opening_time, closing_time, working_days } = req.body;
+    const queryText = "UPDATE users SET opening_time = $1, closing_time = $2, working_days = $3 WHERE id = $4 RETURNING *";
+    const valores = Array.of(opening_time, closing_time, working_days, id);
+    const result = await client.query(queryText, valores);
+    res.status(200).json({ success: true, data: result.rows.shift() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Error al actualizar horarios' });
+  }
+}
+
+module.exports = { registerUser, loginUser, getUserProfile, getAllBusinesses, updateBusinessProfile };
