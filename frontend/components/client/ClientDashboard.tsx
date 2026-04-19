@@ -24,13 +24,15 @@ export default function ClientDashboard() {
   const [servicioSeleccionado, setServicioSeleccionado] = useState<ServicioAura | null>(null);
   const [misReservas, setMisReservas] = useState<Record<string, MiReserva>>({});
   
-  // Estados para Filtros y Búsqueda
   const [busqueda, setBusqueda] = useState<string>('');
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>('Todos');
   
-  // Datos para agendar
-  const [fechaElegida, setFechaElegida] = useState<string>('');
-  const [horaElegida, setHoraElegida] = useState<string>('');
+  // ALGORITMO DE CALENDARIO Y HORARIOS
+  const [citasReservadas, setCitasReservadas] = useState<{date: Date, duration: number}[]>([]);
+  const [diasDisponibles, setDiasDisponibles] = useState<{fecha: string, diaStr: string, dObj: Date}[]>([]);
+  const [fechaSeleccionada, setFechaSeleccionada] = useState<string>('');
+  const [horariosDisponibles, setHorariosDisponibles] = useState<string[]>([]);
+  const [horaSeleccionada, setHoraSeleccionada] = useState<string>('');
 
   const urlBase = 'https://aura-ukzs.onrender.com/api';
 
@@ -44,7 +46,7 @@ export default function ClientDashboard() {
         const res = await fetch(urlBase + '/users/profile/' + id + '/' + rol);
         const datos = await res.json();
         if (datos.success) setNombreUsuario(datos.profile.first_name);
-      } catch { /* error silencioso */ }
+      } catch { }
     }
   };
 
@@ -53,7 +55,6 @@ export default function ClientDashboard() {
       const res = await fetch(urlBase + '/users/businesses');
       const datos = await res.json();
       if (datos.success) { 
-        // Convertimos el objeto en array si es necesario
         const centrosArray = Array.isArray(datos.data) ? datos.data : Object.values(datos.data);
         setListaCentros(centrosArray); 
         setVistaActual('centros'); 
@@ -70,16 +71,105 @@ export default function ClientDashboard() {
     } catch { Alert.alert('Error', 'Fallo al cargar el catálogo'); }
   };
 
-  const prepararAgenda = (servicio: ServicioAura) => {
+  // --- INICIA ALGORITMO DE CALENDARIO ---
+  const prepararAgenda = async (servicio: ServicioAura) => {
     setServicioSeleccionado(servicio);
-    setFechaElegida(''); setHoraElegida('');
     setVistaActual('agendar');
+    const businessId = centroSeleccionado?.id;
+    
+    try {
+      // 1. Obtener citas ocupadas del backend
+      const res = await fetch(`${urlBase}/appointments/booked/${businessId}`);
+      const data = await res.json();
+      const booked = data.success ? data.data.map((b:any) => ({
+        date: new Date(b.appointment_date),
+        duration: b.duration_minutes
+      })) : [];
+      setCitasReservadas(booked);
+
+      // 2. Generar los próximos 14 días
+      const dias = [];
+      const hoy = new Date();
+      for(let i = 0; i < 14; i++) {
+         const d = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + i);
+         const fechaStr = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`;
+         const diaStr = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+         const formatDia = diaStr.charAt(0).toUpperCase() + diaStr.slice(1);
+         dias.push({ fecha: fechaStr, diaStr: formatDia, dObj: d });
+      }
+      setDiasDisponibles(dias);
+      seleccionarFecha(dias[0].fecha, dias[0].dObj, booked, servicio);
+    } catch {
+      Alert.alert("Error", "Fallo al obtener la disponibilidad de este negocio");
+    }
   };
 
+  const seleccionarFecha = (fechaStr: string, dObj: Date, booked: any[], servicio: ServicioAura) => {
+    setFechaSeleccionada(fechaStr);
+    setHoraSeleccionada('');
+    
+    // Validar si el negocio atiende este día de la semana
+    const diaSemana = dObj.getDay(); // 0 = Domingo
+    const workingDaysStr = (centroSeleccionado?.working_days || '').toLowerCase();
+    let cerrado = false;
+    // Si es domingo y su horario no dice "domingo" o "todos los dias", asumimos cerrado
+    if (diaSemana === 0 && !workingDaysStr.includes('domingo') && !workingDaysStr.includes('todos los dias')) {
+      cerrado = true;
+    }
+
+    if (cerrado) {
+      setHorariosDisponibles([]);
+      return;
+    }
+
+    // Generar horas disponibles y cruzar con citas ocupadas
+    const opening = centroSeleccionado?.opening_time || '09:00';
+    const closing = centroSeleccionado?.closing_time || '20:00';
+    const duration = servicio.duration_minutes || 30;
+
+    const parseTime = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+    const openMins = parseTime(opening);
+    const closeMins = parseTime(closing);
+    const slots = [];
+
+    const now = new Date();
+    const isToday = fechaStr === `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2,'0')}-${now.getDate().toString().padStart(2,'0')}`;
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+
+    // Filtramos solo las citas de ESTE día
+    const bookedToday = booked.filter(b => b.date.getFullYear() === dObj.getFullYear() && b.date.getMonth() === dObj.getMonth() && b.date.getDate() === dObj.getDate());
+
+    for (let m = openMins; m + duration <= closeMins; m += 30) {
+      if (isToday && m <= currentMins + 30) continue; // No mostrar horas que ya pasaron hoy
+
+      const slotStartMins = m;
+      const slotEndMins = m + duration;
+      let hasOverlap = false;
+
+      // Verificación estricta de cruce de horarios
+      for (const b of bookedToday) {
+         const bStartMins = b.date.getHours() * 60 + b.date.getMinutes();
+         const bEndMins = bStartMins + b.duration;
+         // Si el inicio de nuestro slot está antes del fin de otra cita, Y nuestro fin está después del inicio de esa cita = HAY CHOQUE
+         if (slotStartMins < bEndMins && slotEndMins > bStartMins) {
+            hasOverlap = true; break;
+         }
+      }
+
+      if (!hasOverlap) {
+        const hh = Math.floor(m / 60).toString().padStart(2, '0');
+        const mm = (m % 60).toString().padStart(2, '0');
+        slots.push(`${hh}:${mm}`);
+      }
+    }
+    setHorariosDisponibles(slots);
+  };
+  // --- FIN ALGORITMO ---
+
   const solicitarCita = async () => {
-    if (!fechaElegida || !horaElegida) { Alert.alert('Aviso', 'Ingresa la fecha y hora'); return; }
+    if (!fechaSeleccionada || !horaSeleccionada) { Alert.alert('Aviso', 'Selecciona un horario disponible del calendario'); return; }
     const idCliente = await AsyncStorage.getItem('userId');
-    const fechaTurno = new Date(`${fechaElegida}T${horaElegida}:00`).toISOString();
+    const fechaTurno = new Date(`${fechaSeleccionada}T${horaSeleccionada}:00`).toISOString();
 
     const cargaUtil = {
       client_id: idCliente,
@@ -90,14 +180,9 @@ export default function ClientDashboard() {
     };
 
     try {
-      const res = await fetch(urlBase + '/appointments/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cargaUtil)
-      });
-      const datos = await res.json();
-      if (datos.success) {
-        Alert.alert('AURA', 'Solicitud enviada al centro estético');
+      const res = await fetch(urlBase + '/appointments/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cargaUtil) });
+      if ((await res.json()).success) {
+        Alert.alert('AURA', 'Solicitud de cita enviada al centro estético');
         cargarMisReservas();
       }
     } catch { Alert.alert('Error', 'Fallo de conexión'); }
@@ -114,13 +199,8 @@ export default function ClientDashboard() {
 
   const pagarReserva = async (idCita: string, monto: string) => {
     try {
-      const res = await fetch(urlBase + '/appointments/pay/' + idCita, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_paid: monto })
-      });
-      const datos = await res.json();
-      if (datos.success) {
+      const res = await fetch(urlBase + '/appointments/pay/' + idCita, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount_paid: monto }) });
+      if ((await res.json()).success) {
         Alert.alert('Pago Exitoso', 'Tu cita está 100% confirmada');
         cargarMisReservas();
       }
@@ -128,12 +208,7 @@ export default function ClientDashboard() {
   };
 
   const RastroEstado = ({ estado }: { estado: string }) => {
-    const pasos = [
-      { id: 'solicitada', icono: 'time', titulo: 'Solicitada' },
-      { id: 'aceptada', icono: 'wallet', titulo: 'Pago Pendiente' },
-      { id: 'confirmada', icono: 'checkmark-circle', titulo: 'Confirmada' }
-    ];
-
+    const pasos = [{ id: 'solicitada', icono: 'time', titulo: 'Solicitada' }, { id: 'aceptada', icono: 'wallet', titulo: 'Pendiente Pago' }, { id: 'confirmada', icono: 'checkmark-circle', titulo: 'Confirmada' }];
     let nivel = 0;
     if (estado === 'aceptada') nivel = 1;
     if (estado === 'confirmada') nivel = 2;
@@ -142,9 +217,7 @@ export default function ClientDashboard() {
       <View style={estilos.rastroContenedor}>
         {pasos.map((paso, index) => (
           <View key={paso.id} style={estilos.rastroPaso}>
-            <View style={[estilos.rastroCirculo, index <= nivel ? estilos.rastroActivo : estilos.rastroInactivo]}>
-              <Ionicons name={paso.icono as any} size={20} color="white" />
-            </View>
+            <View style={[estilos.rastroCirculo, index <= nivel ? estilos.rastroActivo : estilos.rastroInactivo]}><Ionicons name={paso.icono as any} size={20} color="white" /></View>
             <Text style={estilos.rastroTexto}>{paso.titulo}</Text>
           </View>
         ))}
@@ -153,15 +226,12 @@ export default function ClientDashboard() {
   };
 
   if (vistaActual === 'centros') {
-    // LÓGICA DE FILTRADO
     const centrosFiltrados = listaCentros.filter((c) => {
       const coincideCategoria = categoriaFiltro === 'Todos' || c.business_category === categoriaFiltro;
       const textoBusqueda = busqueda.toLowerCase();
       const nombreNegocio = (c.business_name || c.representative_name || '').toLowerCase();
       const zonaNegocio = (c.zone || '').toLowerCase();
-      const coincideTexto = nombreNegocio.includes(textoBusqueda) || zonaNegocio.includes(textoBusqueda);
-      
-      return coincideCategoria && coincideTexto;
+      return coincideCategoria && (nombreNegocio.includes(textoBusqueda) || zonaNegocio.includes(textoBusqueda));
     });
 
     const categorias = ['Todos', 'Barbería', 'Salón de Belleza', 'Unisex'];
@@ -171,21 +241,11 @@ export default function ClientDashboard() {
         <View style={estilos.cabeceraFiltros}>
           <View style={estilos.buscadorContainer}>
             <Ionicons name="search" size={20} color="#888" style={{marginLeft: 10}} />
-            <TextInput 
-              style={estilos.inputBuscador} 
-              placeholder="Buscar por nombre o zona (Ej. Sopocachi)" 
-              value={busqueda} 
-              onChangeText={setBusqueda} 
-            />
+            <TextInput style={estilos.inputBuscador} placeholder="Buscar por nombre o zona (Ej. Sopocachi)" value={busqueda} onChangeText={setBusqueda} />
           </View>
-          
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={estilos.scrollFiltros}>
             {categorias.map(cat => (
-              <TouchableOpacity 
-                key={cat} 
-                style={[estilos.chipFiltro, categoriaFiltro === cat && estilos.chipFiltroActivo]}
-                onPress={() => setCategoriaFiltro(cat)}
-              >
+              <TouchableOpacity key={cat} style={[estilos.chipFiltro, categoriaFiltro === cat && estilos.chipFiltroActivo]} onPress={() => setCategoriaFiltro(cat)}>
                 <Text style={categoriaFiltro === cat ? estilos.txtChipActivo : estilos.txtChip}>{cat}</Text>
               </TouchableOpacity>
             ))}
@@ -193,20 +253,13 @@ export default function ClientDashboard() {
         </View>
 
         <ScrollView style={estilos.scrollPadding}>
-          <Text style={{fontWeight: 'bold', color: '#555', marginBottom: 15, marginTop: 10}}>
-            {centrosFiltrados.length} resultados encontrados
-          </Text>
-
+          <Text style={{fontWeight: 'bold', color: '#555', marginBottom: 15, marginTop: 10}}>{centrosFiltrados.length} resultados encontrados</Text>
           {centrosFiltrados.map((c) => (
             <TouchableOpacity key={c.id} style={estilos.tarjetaCentro} onPress={() => verServiciosDelCentro(c)}>
-              <Image 
-                source={{ uri: c.shop_photos && c.shop_photos.length > 0 ? c.shop_photos[0] : 'https://via.placeholder.com/400x150?text=AURA' }} 
-                style={estilos.portadaCentro} 
-              />
+              <Image source={{ uri: c.shop_photos && c.shop_photos.length > 0 ? c.shop_photos[0] : 'https://via.placeholder.com/400x150?text=AURA' }} style={estilos.portadaCentro} />
               <View style={estilos.logoSuperpuesto}>
                 {c.profile_picture ? <Image source={{ uri: c.profile_picture }} style={estilos.imagenLogo} /> : <View style={estilos.imagenLogo}><Ionicons name="storefront" size={24} color="#ccc" /></View>}
               </View>
-
               <View style={estilos.infoServicio}>
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start'}}>
                   <Text style={estilos.tituloServicio}>{c.business_name || c.representative_name}</Text>
@@ -217,16 +270,12 @@ export default function ClientDashboard() {
               </View>
             </TouchableOpacity>
           ))}
-          {centrosFiltrados.length === 0 && (
-             <Text style={{textAlign: 'center', marginTop: 50, color: '#888'}}>No se encontraron establecimientos con esa búsqueda.</Text>
-          )}
           <TouchableOpacity style={estilos.botonVolver} onPress={() => setVistaActual('inicio')}><Text style={estilos.textoBotonPrimario}>Volver al Menú</Text></TouchableOpacity>
         </ScrollView>
       </View>
     );
   }
 
-  // --- LAS OTRAS VISTAS SE MANTIENEN IGUAL (Servicios, Agendar, Reservas) ---
   if (vistaActual === 'servicios_centro') {
     return (
       <View style={estilos.contenedorPrincipal}>
@@ -239,8 +288,9 @@ export default function ClientDashboard() {
                 <Text style={estilos.tituloServicio}>{s.name}</Text>
                 <Text style={estilos.detalleServicio}>{s.description}</Text>
                 <Text style={estilos.precioServicio}>{s.price} Bs</Text>
+                <Text style={{color: '#888', fontStyle: 'italic', marginBottom: 10}}><Ionicons name="timer-outline"/> Tiempo aprox: {s.duration_minutes} min.</Text>
                 <TouchableOpacity style={estilos.botonReservar} onPress={() => prepararAgenda(s)}>
-                  <Text style={estilos.textoBotonBlanco}>Seleccionar y Agendar</Text>
+                  <Text style={estilos.textoBotonBlanco}>Agendar este Servicio</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -251,33 +301,55 @@ export default function ClientDashboard() {
     );
   }
 
+  // --- VISTA DE CALENDARIO Y HORARIOS ---
   if (vistaActual === 'agendar') {
     return (
       <ScrollView style={[estilos.contenedorPrincipal, estilos.scrollPadding]}>
-        <Text style={[estilos.nombreApp, {color: AuraColors.primary, marginTop: 40, textAlign: 'center'}]}>AGENDAR CITA</Text>
-        <View style={estilos.tarjetaCentro}>
-          <View style={estilos.infoServicio}>
-            <Text style={estilos.tituloServicio}>{servicioSeleccionado?.name}</Text>
-            <Text style={estilos.detalleServicio}>Centro: {centroSeleccionado?.business_name || centroSeleccionado?.representative_name}</Text>
-            <Text style={estilos.detalleServicio}>Horario: {centroSeleccionado?.opening_time} a {centroSeleccionado?.closing_time}</Text>
-            
-            <Text style={{marginTop: 20, fontWeight: 'bold'}}>Fecha (YYYY-MM-DD):</Text>
-            <TextInput style={estilos.inputBox} placeholder="Ej. 2026-05-20" value={fechaElegida} onChangeText={setFechaElegida} />
-            
-            <Text style={{fontWeight: 'bold'}}>Hora (HH:MM):</Text>
-            <TextInput style={estilos.inputBox} placeholder="Ej. 14:30" value={horaElegida} onChangeText={setHoraElegida} />
-
-            <View style={estilos.boxCotizacion}>
-              <Text>Costo Servicio: {servicioSeleccionado?.price} Bs</Text>
-              <Text>Reserva AURA (10%): {(parseFloat(servicioSeleccionado?.price || '0') * 0.10).toFixed(2)} Bs</Text>
-              <Text style={estilos.precioServicio}>Total Final: {(parseFloat(servicioSeleccionado?.price || '0') * 1.10).toFixed(2)} Bs</Text>
-            </View>
-
-            <TouchableOpacity style={estilos.botonReservar} onPress={solicitarCita}>
-              <Text style={estilos.textoBotonBlanco}>Enviar Solicitud</Text>
+        <Text style={[estilos.nombreApp, {color: AuraColors.primary, marginTop: 40, textAlign: 'center', marginBottom: 20}]}>CALENDARIO AURA</Text>
+        
+        <Text style={{fontWeight: 'bold', marginBottom: 10, fontSize: 16, color: '#333'}}>Selecciona una Fecha:</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 20}}>
+          {diasDisponibles.map(dia => (
+            <TouchableOpacity 
+              key={dia.fecha} 
+              style={[estilos.diaCaja, fechaSeleccionada === dia.fecha && estilos.diaCajaActiva]}
+              onPress={() => seleccionarFecha(dia.fecha, dia.dObj, citasReservadas, servicioSeleccionado!)}
+            >
+              <Text style={fechaSeleccionada === dia.fecha ? estilos.txtDiaActivo : estilos.txtDia}>{dia.diaStr.split(',')[0]}</Text>
+              <Text style={fechaSeleccionada === dia.fecha ? estilos.txtFechaActivo : estilos.txtFecha}>{dia.fecha.split('-')[2]}</Text>
             </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <Text style={{fontWeight: 'bold', marginBottom: 10, fontSize: 16, color: '#333'}}>Horarios Disponibles:</Text>
+        {horariosDisponibles.length > 0 ? (
+          <View style={estilos.gridHorarios}>
+            {horariosDisponibles.map(hora => (
+              <TouchableOpacity 
+                key={hora} 
+                style={[estilos.horaCaja, horaSeleccionada === hora && estilos.horaCajaActiva]}
+                onPress={() => setHoraSeleccionada(hora)}
+              >
+                <Text style={horaSeleccionada === hora ? estilos.txtHoraActiva : estilos.txtHora}>{hora}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
+        ) : (
+          <View style={{backgroundColor: '#ffebeb', padding: 15, borderRadius: 10, marginBottom: 20}}>
+             <Text style={{color: '#d9534f', textAlign: 'center'}}>El centro está cerrado este día o ya no tiene horarios que alcancen para los {servicioSeleccionado?.duration_minutes} min del servicio.</Text>
+          </View>
+        )}
+
+        <View style={estilos.boxCotizacion}>
+          <Text style={{fontWeight: 'bold', fontSize: 16, marginBottom: 10}}>{servicioSeleccionado?.name}</Text>
+          <Text>Costo del Servicio: {servicioSeleccionado?.price} Bs</Text>
+          <Text>Garantía de Reserva (10%): {(parseFloat(servicioSeleccionado?.price || '0') * 0.10).toFixed(2)} Bs</Text>
         </View>
+
+        <TouchableOpacity style={[estilos.botonReservar, (!fechaSeleccionada || !horaSeleccionada) && {backgroundColor: '#ccc'}]} onPress={solicitarCita}>
+          <Text style={estilos.textoBotonBlanco}>Enviar Solicitud al Negocio</Text>
+        </TouchableOpacity>
+        
         <TouchableOpacity style={estilos.botonVolver} onPress={() => setVistaActual('servicios_centro')}><Text style={estilos.textoBotonPrimario}>Cancelar</Text></TouchableOpacity>
       </ScrollView>
     );
@@ -343,7 +415,6 @@ const estilos = StyleSheet.create({
   cabeceraCurvaMenor: { backgroundColor: AuraColors.primary, height: 120, borderBottomLeftRadius: 30, borderBottomRightRadius: 30, alignItems: 'center', paddingTop: 50, marginBottom: 20 },
   nombreApp: { fontSize: 24, color: AuraColors.white, fontWeight: '900', letterSpacing: 2 },
   
-  // Buscador y Filtros
   cabeceraFiltros: { backgroundColor: AuraColors.primary, paddingBottom: 20, paddingTop: 50, borderBottomLeftRadius: 25, borderBottomRightRadius: 25, elevation: 5 },
   buscadorContainer: { flexDirection: 'row', backgroundColor: 'white', marginHorizontal: 20, borderRadius: 12, alignItems: 'center', paddingVertical: 2, elevation: 2 },
   inputBuscador: { flex: 1, paddingVertical: 12, paddingHorizontal: 10, fontSize: 16 },
@@ -358,7 +429,6 @@ const estilos = StyleSheet.create({
   itemMenu: { flexDirection: 'row', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   textoItemMenu: { flex: 1, marginLeft: 15, fontSize: 16, fontWeight: '600', color: AuraColors.primary },
   
-  // Tarjetas de Negocios
   tarjetaCentro: { backgroundColor: AuraColors.white, borderRadius: 16, overflow: 'hidden', marginBottom: 20, elevation: 4 },
   portadaCentro: { width: '100%', height: 120, backgroundColor: '#eee' },
   logoSuperpuesto: { position: 'absolute', top: 80, left: 15, zIndex: 10 },
@@ -370,14 +440,28 @@ const estilos = StyleSheet.create({
   tituloServicio: { fontSize: 18, fontWeight: 'bold', color: AuraColors.primary, marginBottom: 5, flex: 1 },
   detalleServicio: { color: '#666', marginBottom: 5 },
   precioServicio: { fontSize: 18, fontWeight: 'bold', color: AuraColors.gold, marginVertical: 10 },
-  botonReservar: { backgroundColor: AuraColors.primary, padding: 15, borderRadius: 10, alignItems: 'center' },
+  botonReservar: { backgroundColor: AuraColors.primary, padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10 },
   textoBotonBlanco: { color: AuraColors.white, fontWeight: 'bold', fontSize: 16 },
-  botonVolver: { padding: 15, alignItems: 'center', marginBottom: 30 },
+  botonVolver: { padding: 15, alignItems: 'center', marginBottom: 30, marginTop: 10 },
   textoBotonPrimario: { color: AuraColors.primary, fontWeight: 'bold', fontSize: 16 },
   inputBox: { backgroundColor: '#f5f5f5', padding: 12, borderRadius: 8, marginBottom: 15, borderWidth: 1, borderColor: '#ddd' },
   boxCotizacion: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 8, marginBottom: 15, borderWidth: 1, borderColor: AuraColors.gold },
   boxPagos: { marginTop: 15, padding: 15, backgroundColor: '#f0f8ff', borderRadius: 10, borderWidth: 1, borderColor: AuraColors.primary },
   
+  // Estilos del Calendario
+  diaCaja: { paddingVertical: 12, paddingHorizontal: 15, backgroundColor: '#f0f0f0', borderRadius: 12, marginRight: 10, alignItems: 'center', width: 75, height: 75, justifyContent: 'center' },
+  diaCajaActiva: { backgroundColor: AuraColors.primary },
+  txtDia: { color: '#666', fontSize: 12, fontWeight: 'bold', textTransform: 'capitalize' },
+  txtDiaActivo: { color: 'white', fontSize: 12, fontWeight: 'bold', textTransform: 'capitalize' },
+  txtFecha: { color: '#333', fontSize: 20, fontWeight: 'bold', marginTop: 3 },
+  txtFechaActivo: { color: 'white', fontSize: 20, fontWeight: 'bold', marginTop: 3 },
+  
+  gridHorarios: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+  horaCaja: { paddingVertical: 12, backgroundColor: 'white', borderRadius: 8, borderWidth: 1, borderColor: '#ddd', width: '31%', alignItems: 'center' },
+  horaCajaActiva: { backgroundColor: AuraColors.gold, borderColor: AuraColors.gold },
+  txtHora: { color: '#444', fontWeight: 'bold', fontSize: 16 },
+  txtHoraActiva: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+
   rastroContenedor: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 20, paddingHorizontal: 10 },
   rastroPaso: { alignItems: 'center', flex: 1 },
   rastroCirculo: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', zIndex: 2 },

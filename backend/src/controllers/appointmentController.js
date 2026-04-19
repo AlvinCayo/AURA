@@ -79,4 +79,23 @@ async function payAppointment(req, res) {
   }
 }
 
-module.exports = { createAppointment, getClientAppointments, getBusinessAppointments, updateAppointmentStatus, payAppointment };
+// NUEVA FUNCIÓN: Obtiene las fechas y duraciones de las citas ocupadas
+async function getBookedSlots(req, res) {
+  try {
+    const { businessId } = req.params;
+    const queryText = `
+      SELECT a.appointment_date, s.duration_minutes
+      FROM appointments a
+      JOIN services s ON a.service_id = s.id
+      WHERE a.business_id = $1 
+        AND a.status IN ('solicitada', 'aceptada', 'confirmada')
+        AND a.appointment_date >= NOW() - INTERVAL '1 day'
+    `;
+    const result = await client.query(queryText, [businessId]);
+    res.status(200).json({ success: true, data: result.rows });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Error al obtener horarios ocupados' });
+  }
+}
+
+module.exports = { createAppointment, getClientAppointments, getBusinessAppointments, updateAppointmentStatus, payAppointment, getBookedSlots };
