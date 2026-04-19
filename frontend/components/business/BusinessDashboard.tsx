@@ -17,7 +17,7 @@ export default function BusinessDashboard() {
     const id = await AsyncStorage.getItem('userId');
     const role = await AsyncStorage.getItem('userRole');
     if (id && role) {
-      const response = await fetch('http://192.168.1.213:3000/api/users/profile/' + id + '/' + role);
+      const response = await fetch('https://aura-ukzs.onrender.com/api/users/profile/' + id + '/' + role);
       const data = await response.json();
       if (data.success) {
         setIsApproved(data.profile.is_approved);

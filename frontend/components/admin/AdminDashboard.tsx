@@ -49,15 +49,15 @@ export default function AdminDashboard() {
 
   const loadData = async () => {
     try {
-      const resUsers = await fetch('http://192.168.1.213:3000/api/admin/users');
+      const resUsers = await fetch('https://aura-ukzs.onrender.com/api/admin/users');
       const dataUsers = await resUsers.json();
       if (dataUsers.success) setSystemUsers(dataUsers.users);
       
-      const resLogs = await fetch('http://192.168.1.213:3000/api/admin/logs');
+      const resLogs = await fetch('https://aura-ukzs.onrender.com/api/admin/logs');
       const dataLogs = await resLogs.json();
       if (dataLogs.success) setSystemLogs(dataLogs.logs);
 
-      const resStats = await fetch('http://192.168.1.213:3000/api/admin/stats');
+      const resStats = await fetch('https://aura-ukzs.onrender.com/api/admin/stats');
       const dataStats = await resStats.json();
       if (dataStats.success) setStats(dataStats);
     } catch (error) {
@@ -119,7 +119,7 @@ export default function AdminDashboard() {
       body: JSON.stringify({ isActive: !currentStatus })
     };
     try {
-      const response = await fetch('http://192.168.1.213:3000/api/admin/status/' + userId, requestOptions);
+      const response = await fetch('https://aura-ukzs.onrender.com/api/admin/status/' + userId, requestOptions);
       const data = await response.json();
       if (data.success) {
         loadData();
@@ -141,7 +141,7 @@ export default function AdminDashboard() {
   const approveBusinessAccount = async (userId: string) => {
     const requestOptions = { method: 'PUT' };
     try {
-      const response = await fetch('http://192.168.1.213:3000/api/admin/approve/' + userId, requestOptions);
+      const response = await fetch('https://aura-ukzs.onrender.com/api/admin/approve/' + userId, requestOptions);
       const data = await response.json();
       if (data.success) {
         mostrarAlerta('Exito', 'Centro aprobado correctamente');
@@ -156,7 +156,7 @@ export default function AdminDashboard() {
   const rejectBusinessAccount = async (userId: string) => {
     const requestOptions = { method: 'PUT' };
     try {
-      const response = await fetch('http://192.168.1.213:3000/api/admin/reject/' + userId, requestOptions);
+      const response = await fetch('https://aura-ukzs.onrender.com/api/admin/reject/' + userId, requestOptions);
       const data = await response.json();
       if (data.success) {
         mostrarAlerta('Exito', 'Solicitud rechazada');

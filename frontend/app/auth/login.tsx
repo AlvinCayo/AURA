@@ -38,7 +38,7 @@ export default function LoginScreen() {
     };
 
     try {
-      const response = await fetch('http://192.168.1.213:3000/api/auth/login', requestOptions);
+      const response = await fetch('https://aura-ukzs.onrender.com/api/auth/login', requestOptions);
       const data = await response.json();
 
       if (data.success) {

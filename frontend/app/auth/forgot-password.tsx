@@ -27,7 +27,7 @@ export default function ForgotPasswordScreen() {
 
     const payload = { email, phone, newPassword };
     try {
-      const response = await fetch('http://192.168.1.213:3000/api/auth/reset-password', {
+      const response = await fetch('https://aura-ukzs.onrender.com/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
