@@ -17,7 +17,6 @@ export default function BusinessDashboard() {
   const [vista, setVista] = useState<string>('inicio');
   const [modoPerfil, setModoPerfil] = useState<'vista' | 'edicion'>('vista');
   
-  // Estados para Servicios
   const [nombre, setNombre] = useState<string>('');
   const [descripcion, setDescripcion] = useState<string>('');
   const [precio, setPrecio] = useState<string>('');
@@ -28,7 +27,6 @@ export default function BusinessDashboard() {
   const [catalogo, setCatalogo] = useState<Record<string, ServicioAura>>({});
   const [agenda, setAgenda] = useState<Record<string, CitaAura>>({});
 
-  // Estados del Perfil Extendido (Jalados del registro)
   const [businessName, setBusinessName] = useState('');
   const [perfilFoto, setPerfilFoto] = useState<string>('');
   const [repName, setRepName] = useState('');
@@ -37,7 +35,7 @@ export default function BusinessDashboard() {
   const [zone, setZone] = useState('');
   const [street, setStreet] = useState('');
   const [num, setNum] = useState('');
-  const [cat, setCat] = useState('Barbería'); // Valor por defecto
+  const [cat, setCat] = useState('Barbería');
   const [addressNotes, setAddressNotes] = useState('');
   const [licenseUrl, setLicenseUrl] = useState('');
   
@@ -45,7 +43,6 @@ export default function BusinessDashboard() {
   const [lng, setLng] = useState('-68.1500');
   const [shopPhotos, setShopPhotos] = useState<string[]>([]);
 
-  // Estados de Horario
   const [horaApertura, setHoraApertura] = useState<string>('');
   const [horaCierre, setHoraCierre] = useState<string>('');
   const [diasTrabajo, setDiasTrabajo] = useState<string>('');
@@ -93,12 +90,9 @@ export default function BusinessDashboard() {
         setZone(p.zone || '');
         setStreet(p.street || '');
         setNum(p.building_number || '');
-        
-        // Asignamos la categoría jalada de la base de datos
         if (p.business_category) setCat(p.business_category);
-        
         setAddressNotes(p.address_notes || '');
-        setLicenseUrl(p.license_pdf_url || ''); // Jalamos la licencia guardada en registro
+        setLicenseUrl(p.license_pdf_url || '');
         setLat(p.latitude?.toString() || '-16.5000');
         setLng(p.longitude?.toString() || '-68.1500');
         setShopPhotos(p.shop_photos || []);
@@ -108,15 +102,45 @@ export default function BusinessDashboard() {
     }
   };
 
+  // --- NUEVA FUNCIÓN: Transforma archivo local en URL Web Real ---
+  const subirArchivoALaNube = async (uri: string, isPdf: boolean = false) => {
+    const fd = new FormData();
+    const extension = uri.split('.').pop() || 'jpg';
+    const type = isPdf ? 'application/pdf' : `image/${extension}`;
+    const name = isPdf ? `documento.${extension}` : `foto.${extension}`;
+    
+    if (Platform.OS === 'web') {
+      const resImg = await fetch(uri);
+      const blob = await resImg.blob();
+      fd.append('file', blob, name);
+    } else {
+      fd.append('file', { uri, name, type } as any);
+    }
+    
+    const res = await fetch(`${urlBase}/users/upload-file`, {
+      method: 'POST',
+      body: fd,
+      headers: { 'Accept': 'application/json' }
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error('Fallo la subida');
+    return data.url; // Retorna enlace oficial de Cloudinary
+  };
+
   const cambiarLogo = async () => {
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.5 });
     if (!res.canceled && res.assets) {
-      setPerfilFoto(res.assets[0].uri); 
-      Alert.alert('AURA', 'Logo actualizado temporalmente. Recuerda presionar Guardar Todos los Cambios.');
+      Alert.alert('Subiendo...', 'Enviando el logo a Cloudinary');
+      try {
+        const urlReal = await subirArchivoALaNube(res.assets[0].uri, false);
+        setPerfilFoto(urlReal); 
+        Alert.alert('AURA', 'Logo cargado. Recuerda Guardar Todos los Cambios al final.');
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo subir la imagen a la nube');
+      }
     }
   };
 
-  // NUEVA FUNCIÓN PARA SELECCIONAR FOTO O PDF PARA LA LICENCIA
   const seleccionarLicencia = async () => {
     try {
       const res = await DocumentPicker.getDocumentAsync({
@@ -124,18 +148,30 @@ export default function BusinessDashboard() {
         copyToCacheDirectory: true,
       });
       if (!res.canceled && res.assets && res.assets.length > 0) {
-        setLicenseUrl(res.assets[0].uri);
-        Alert.alert('AURA', 'Documento de licencia cargado temporalmente.');
+        Alert.alert('Subiendo...', 'Cargando el documento a la nube');
+        const uri = res.assets[0].uri;
+        const isPdf = uri.toLowerCase().endsWith('.pdf');
+        
+        const urlReal = await subirArchivoALaNube(uri, isPdf);
+        setLicenseUrl(urlReal);
+        Alert.alert('AURA', 'Licencia asegurada en la nube.');
       }
     } catch (err) {
-      Alert.alert('Error', 'No se pudo cargar el archivo.');
+      Alert.alert('Error', 'No se pudo procesar el archivo.');
     }
   };
 
   const agregarFotoLocal = async () => {
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
     if (!res.canceled && res.assets) {
-      setShopPhotos([...shopPhotos, res.assets[0].uri]);
+      Alert.alert('Subiendo...', 'Añadiendo a la galería de Cloudinary');
+      try {
+        const urlReal = await subirArchivoALaNube(res.assets[0].uri, false);
+        setShopPhotos([...shopPhotos, urlReal]);
+        Alert.alert('Éxito', 'Foto subida correctamente');
+      } catch (error) {
+        Alert.alert('Error', 'Fallo al subir foto a la nube');
+      }
     }
   };
 
@@ -178,7 +214,6 @@ export default function BusinessDashboard() {
     }
   };
 
-  // ... (guardarHorarios, cargarCatalogo, cargarAgenda, cambiarEstadoCita, seleccionarImagen, procesarServicio, eliminarServicio se mantienen igual)
   const guardarHorarios = async () => {
     const businessId = await AsyncStorage.getItem('userId');
     try {
@@ -300,19 +335,21 @@ export default function BusinessDashboard() {
     </html>
   `;
 
-  // Renderizado para ver el documento si es PDF o Imagen
   const renderizarLicencia = (url: string) => {
     if (!url) return <Text style={styles.textoGris}>No se ha registrado ninguna licencia vigente.</Text>;
-    
     if (url.toLowerCase().endsWith('.pdf')) {
       return (
         <TouchableOpacity style={styles.btnPdf} onPress={() => Linking.openURL(url)}>
           <Ionicons name="document-text" size={40} color={AuraColors.primary} />
-          <Text style={styles.txtPdf}>Abrir Documento PDF de Licencia</Text>
+          <Text style={styles.txtPdf}>Abrir Documento PDF Oficial</Text>
         </TouchableOpacity>
       );
     }
-    return <Image source={{ uri: url }} style={styles.licenciaImg} />;
+    return (
+      <TouchableOpacity onPress={() => Linking.openURL(url)}>
+         <Image source={{ uri: url }} style={styles.licenciaImg} />
+      </TouchableOpacity>
+    );
   };
 
   if (vista === 'perfil_negocio') {
@@ -383,7 +420,6 @@ export default function BusinessDashboard() {
         </ScrollView>
       );
     } else {
-      // MODO EDICIÓN
       const opcionesCategoria = ['Barbería', 'Salón de Belleza', 'Unisex'];
 
       return (
@@ -414,7 +450,7 @@ export default function BusinessDashboard() {
             ))}
           </View>
           
-          <Text style={styles.label}>Datos del Representante (Oculto al público, solo nombre)</Text>
+          <Text style={styles.label}>Datos del Representante</Text>
           <TextInput style={styles.input} placeholder="Nombre del Representante" value={repName} onChangeText={setRepName} />
           <TextInput style={styles.input} placeholder="Apellidos" value={repLastName} onChangeText={setRepLastName} />
           <TextInput style={styles.input} placeholder="WhatsApp Comercial" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
@@ -461,7 +497,7 @@ export default function BusinessDashboard() {
             <Ionicons name="document-text" size={20} color={AuraColors.primary} />
             <Text style={[styles.btnTextOscuro, {marginLeft: 10}]}>Actualizar Foto o PDF de Licencia</Text>
           </TouchableOpacity>
-          {licenseUrl !== '' && <Text style={{color: 'green', marginBottom: 10}}>✓ Documento cargado correctamente</Text>}
+          {licenseUrl !== '' && <Text style={{color: 'green', marginBottom: 10}}>✓ Documento listo en la nube</Text>}
 
           <TouchableOpacity style={styles.btnPri} onPress={guardarPerfilCompleto}>
             <Text style={styles.btnText}>Guardar Todos los Cambios</Text>
@@ -596,7 +632,7 @@ const styles = StyleSheet.create({
   headerT: { color: 'white', fontWeight: 'bold', textAlign: 'center', fontSize: 20 },
   sub: { fontSize: 22, fontWeight: 'bold', color: AuraColors.primary, marginBottom: 20, textAlign: 'center' },
   
-  // Estilos de Vista Perfil (FB Style)
+  // Estilos de Vista Perfil (FB Style Premium)
   portadaContainer: { height: 180, backgroundColor: '#ddd', marginBottom: 60, position: 'relative' },
   portadaImg: { width: '100%', height: '100%', resizeMode: 'cover' },
   logoOverlayContainer: { position: 'absolute', bottom: -50, alignSelf: 'center', zIndex: 10, elevation: 5 },
