@@ -1,17 +1,15 @@
 const client = require('../config/db');
 
-// Función auxiliar interna
 async function logUserActivity(userId, action) {
   const queryText = 'INSERT INTO activity_logs (user_id, action) VALUES ($1, $2)';
-  const values = { a: userId, b: action };
-  await client.query(queryText, Object.values(values));
+  const values = [userId, action];
+  await client.query(queryText, values);
 }
 
-// --- Funciones de Usuario (Auth) ---
-async function registerUser(req, res) { /* ... tu código de registro ... */ }
-async function loginUser(req, res) { /* ... tu código de login ... */ }
+// Marcadores para mantener tus funciones de auth originales
+async function registerUser(req, res) { /* Código en authController */ }
+async function loginUser(req, res) { /* Código en authController */ }
 
-// --- Funciones de Perfil ---
 async function getUserProfile(req, res) {
   const userId = req.params.id;
   const userRole = req.params.role;
@@ -88,7 +86,6 @@ async function uploadNewLicense(req, res) {
   }
 }
 
-// --- Funciones de Negocio (Horarios) ---
 async function updateBusinessProfile(req, res) {
   try {
     const { id } = req.params;
@@ -103,7 +100,7 @@ async function updateBusinessProfile(req, res) {
 
 async function getAllBusinesses(req, res) {
   try {
-    const queryText = "SELECT id, first_name, profile_picture, opening_time, closing_time, working_days FROM users WHERE role = 'business'";
+    const queryText = "SELECT id, first_name, profile_picture, opening_time, closing_time, working_days FROM users WHERE role = 'business' OR role = 'centro'";
     const result = await client.query(queryText);
     res.status(200).json({ success: true, data: Object.assign({}, result.rows) });
   } catch (error) {
@@ -111,7 +108,6 @@ async function getAllBusinesses(req, res) {
   }
 }
 
-// EXPORTACIÓN ÚNICA CON TODAS LAS FUNCIONES
 module.exports = {
   registerUser,
   loginUser,

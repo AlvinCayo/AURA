@@ -1,11 +1,18 @@
-const { Client } = require('pg');
+const { Pool } = require('pg');
 require('dotenv').config();
 
-const client = new Client({
+const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: true
+  ssl: {
+    rejectUnauthorized: false
+  },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
-client.connect();
+pool.on('error', (err) => {
+  console.error('Error inesperado en el pool de la base de datos', err);
+});
 
-module.exports = client;
+module.exports = pool;

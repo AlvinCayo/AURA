@@ -24,9 +24,8 @@ async function toggleUserStatus(req, res) {
   const userId = req.params.id;
   const status = req.body.isActive;
   const queryText = 'UPDATE users SET is_active = $1 WHERE id = $2';
-  const values = { a: status, b: userId };
   try {
-    await client.query(queryText, Object.values(values));
+    await client.query(queryText, [status, userId]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false });
@@ -36,9 +35,8 @@ async function toggleUserStatus(req, res) {
 async function approveBusiness(req, res) {
   const userId = req.params.id;
   const queryText = 'UPDATE business_profiles SET is_approved = TRUE WHERE user_id = $1';
-  const values = { a: userId };
   try {
-    await client.query(queryText, Object.values(values));
+    await client.query(queryText, [userId]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false });
@@ -48,9 +46,8 @@ async function approveBusiness(req, res) {
 async function rejectBusiness(req, res) {
   const userId = req.params.id;
   const queryText = 'UPDATE business_profiles SET is_approved = FALSE, license_pdf_url = NULL WHERE user_id = $1';
-  const values = { a: userId };
   try {
-    await client.query(queryText, Object.values(values));
+    await client.query(queryText, [userId]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false });
@@ -61,8 +58,7 @@ async function getSystemStats(req, res) {
   try {
     const ageQuery = 'SELECT AVG(EXTRACT(YEAR FROM age(COALESCE(c.birth_date, b.birth_date)))) as avg_age FROM users u LEFT JOIN client_profiles c ON u.id = c.user_id LEFT JOIN business_profiles b ON u.id = b.user_id WHERE COALESCE(c.birth_date, b.birth_date) IS NOT NULL';
     const ageResult = await client.query(ageQuery);
-    const { 0: firstAge } = ageResult.rows;
-    const avgAge = firstAge && firstAge.avg_age ? Math.round(firstAge.avg_age) : 0;
+    const avgAge = ageResult.rows[0]?.avg_age ? Math.round(ageResult.rows[0].avg_age) : 0;
 
     const zoneQuery = 'SELECT zone as name, COUNT(*) as count FROM business_profiles WHERE zone IS NOT NULL GROUP BY zone';
     const zoneResult = await client.query(zoneQuery);
