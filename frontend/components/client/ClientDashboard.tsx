@@ -12,7 +12,7 @@ export default function ClientDashboard() {
 
   useEffect(() => {
     loadProfile();
-  }, []);
+  }, new Array());
 
   const loadProfile = async () => {
     const id = await AsyncStorage.getItem('userId');
@@ -54,16 +54,20 @@ export default function ClientDashboard() {
 
         <View style={styles.menuCard}>
           <TouchableOpacity style={styles.menuItem}>
-            <Ionicons name="scan-outline" size={24} color={AuraColors.primary} />
-            <Text style={styles.menuItemText}>Analisis Biometrico Facial</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem}>
-            <Ionicons name="map-outline" size={24} color={AuraColors.primary} />
-            <Text style={styles.menuItemText}>Explorar Centros Esteticos</Text>
+            <Ionicons name="search-outline" size={24} color={AuraColors.primary} />
+            <Text style={styles.menuItemText}>Buscar y Agendar Cita</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.menuItem}>
             <Ionicons name="calendar-outline" size={24} color={AuraColors.primary} />
-            <Text style={styles.menuItemText}>Mis Reservas</Text>
+            <Text style={styles.menuItemText}>Mis Reservas Activas</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.menuItem}>
+            <Ionicons name="time-outline" size={24} color={AuraColors.primary} />
+            <Text style={styles.menuItemText}>Historial de Servicios</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.menuItem}>
+            <Ionicons name="scan-outline" size={24} color={AuraColors.primary} />
+            <Text style={styles.menuItemText}>Analisis Biometrico Facial</Text>
           </TouchableOpacity>
         </View>
 

@@ -1,95 +1,236 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView, Image } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { AuraColors } from '../../constants/Colors';
 
+type ServicioAura = {
+  id: string;
+  name: string;
+  description: string;
+  price: string;
+  duration_minutes: number;
+  image_url: string;
+};
+
 export default function BusinessDashboard() {
-  const router = useRouter();
-  const [isApproved, setIsApproved] = useState<boolean>(true);
+  const [nombre, setNombre] = useState<string>('');
+  const [descripcion, setDescripcion] = useState<string>('');
+  const [precio, setPrecio] = useState<string>('');
+  const [duracion, setDuracion] = useState<string>('');
+  const [imagenUri, setImagenUri] = useState<string>('');
+  const [idEdicion, setIdEdicion] = useState<string | null>(null);
+  const [vista, setVista] = useState<string>('inicio');
+  const [catalogo, setCatalogo] = useState<Record<string, ServicioAura>>({});
 
   useEffect(() => {
-    verifyStatus();
-  }, []);
+    if (vista === 'catalogo') {
+      cargarCatalogo();
+    }
+  }, [vista]);
 
-  const verifyStatus = async () => {
-    const id = await AsyncStorage.getItem('userId');
-    const role = await AsyncStorage.getItem('userRole');
-    if (id && role) {
-      const response = await fetch('https://aura-ukzs.onrender.com/api/users/profile/' + id + '/' + role);
-      const data = await response.json();
+  const cargarCatalogo = async () => {
+    const businessId = await AsyncStorage.getItem('userId');
+    if (!businessId) return;
+
+    try {
+      const res = await fetch('https://aura-ukzs.onrender.com/api/services/business/' + businessId);
+      const data = await res.json();
       if (data.success) {
-        setIsApproved(data.profile.is_approved);
+        setCatalogo(data.data);
       }
+    } catch (err) {
+      Alert.alert('Error de Red', 'No se pudo conectar con Render para cargar el catalogo');
     }
   };
 
-  const handleLogout = async () => {
-    await AsyncStorage.clear();
-    router.replace('/auth/login' as never);
+  const seleccionarImagen = async () => {
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 1
+    });
+    if (!res.canceled) {
+      setImagenUri(res.assets[0].uri);
+    }
   };
 
-  if (isApproved === false) {
+  const prepararEdicion = (servicio: ServicioAura) => {
+    setIdEdicion(servicio.id);
+    setNombre(servicio.name);
+    setDescripcion(servicio.description);
+    setPrecio(servicio.price.toString());
+    setDuracion(servicio.duration_minutes.toString());
+    setImagenUri(servicio.image_url);
+    setVista('formulario');
+  };
+
+  const procesarServicio = async () => {
+    const vPrecio = parseFloat(precio);
+    if (vPrecio < 20) {
+      Alert.alert('Regla de Negocio', 'El precio minimo es 20 Bs');
+      return;
+    }
+
+    const businessId = await AsyncStorage.getItem('userId');
+    const fd = new FormData();
+    fd.append('business_id', businessId || '');
+    fd.append('name', nombre);
+    fd.append('description', descripcion);
+    fd.append('price', precio);
+    fd.append('duration_minutes', duracion);
+
+    if (imagenUri && !imagenUri.startsWith('http')) {
+      const extension = imagenUri.split('.').pop() || 'jpg';
+      fd.append('image', {
+        uri: imagenUri,
+        name: `servicio.${extension}`,
+        type: `image/${extension}`
+      } as any);
+    }
+
+    const urlBase = idEdicion 
+      ? `https://aura-ukzs.onrender.com/api/services/update/${idEdicion}`
+      : `https://aura-ukzs.onrender.com/api/services/create`;
+    
+    const metodoHttp = idEdicion ? 'PUT' : 'POST';
+
+    try {
+      const response = await fetch(urlBase, {
+        method: metodoHttp,
+        body: fd,
+        headers: { 'Accept': 'application/json' }
+      });
+
+      const resData = await response.json();
+      if (resData.success) {
+        Alert.alert('Éxito', 'Servicio guardado correctamente en AURA');
+        limpiarYVolver();
+      } else {
+        Alert.alert('Error del Servidor', resData.error || 'Fallo interno al procesar');
+      }
+    } catch (error) {
+      Alert.alert('Error de Red', 'No se pudo contactar al servidor de Render');
+    }
+  };
+
+  const eliminarServicio = async (id: string) => {
+    Alert.alert('AURA', '¿Eliminar este servicio?', [
+      { text: 'Cancelar' },
+      { text: 'Eliminar', onPress: async () => {
+          try {
+            const res = await fetch(`https://aura-ukzs.onrender.com/api/services/delete/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) cargarCatalogo();
+          } catch {
+            Alert.alert('Error', 'No se pudo eliminar el servicio');
+          }
+      }}
+    ]);
+  };
+
+  const limpiarYVolver = () => {
+    setNombre(''); setDescripcion(''); setPrecio(''); setDuracion('');
+    setImagenUri(''); setIdEdicion(null); setVista('inicio');
+  };
+
+  if (vista === 'formulario') {
     return (
-      <View style={styles.mainWrapper}>
-        <View style={styles.curvedHeader}>
-          <Text style={styles.appName}>AURA NEGOCIOS</Text>
-        </View>
-        <View style={styles.restrictedCard}>
-          <Ionicons name="lock-closed" size={60} color={AuraColors.gold} />
-          <Text style={styles.restrictedTitle}>Acceso Restringido</Text>
-          <Text style={styles.restrictedText}>Tu cuenta esta en proceso de validacion administrativa</Text>
-          <TouchableOpacity style={styles.logoutAction} onPress={handleLogout}>
-            <Text style={styles.logoutActionText}>Salir del Sistema</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <ScrollView style={styles.scroll}>
+        <Text style={styles.sub}>{idEdicion ? 'Editar Servicio' : 'Nuevo Servicio'}</Text>
+        <TextInput style={styles.input} placeholder="Nombre" value={nombre} onChangeText={setNombre} />
+        <TextInput style={styles.input} placeholder="Descripcion" value={descripcion} onChangeText={setDescripcion} multiline />
+        <TextInput style={styles.input} placeholder="Precio Bs" keyboardType="numeric" value={precio} onChangeText={setPrecio} />
+        <TextInput style={styles.input} placeholder="Minutos" keyboardType="numeric" value={duracion} onChangeText={setDuracion} />
+        
+        <TouchableOpacity style={styles.btnSec} onPress={seleccionarImagen}>
+          <Text style={styles.btnText}>Elegir Foto</Text>
+        </TouchableOpacity>
+
+        {imagenUri !== '' && <Image source={{ uri: imagenUri }} style={styles.imgPre} />}
+
+        <TouchableOpacity style={styles.btnPri} onPress={procesarServicio}>
+          <Text style={styles.btnText}>Guardar Cambios</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.btnC} onPress={limpiarYVolver}>
+          <Text style={styles.btnTextC}>Cancelar</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
+
+  if (vista === 'catalogo') {
+    return (
+      <ScrollView style={styles.scroll}>
+        <Text style={styles.sub}>Mis Servicios Publicados</Text>
+        {Object.values(catalogo).map((ser) => (
+          <View key={ser.id} style={styles.card}>
+            {ser.image_url ? (
+              <Image source={{ uri: ser.image_url }} style={styles.cardImg} />
+            ) : (
+              <View style={[styles.cardImg, { backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' }]}>
+                <Ionicons name="image-outline" size={30} color="#ccc" />
+              </View>
+            )}
+            <View style={styles.cardInfo}>
+              <Text style={styles.cardTitle}>{ser.name}</Text>
+              <Text style={styles.cardPrice}>{ser.price} Bs</Text>
+              <View style={styles.row}>
+                <TouchableOpacity style={styles.actBtn} onPress={() => prepararEdicion(ser)}>
+                  <Ionicons name="pencil" size={20} color="white" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.delBtn} onPress={() => eliminarServicio(ser.id)}>
+                  <Ionicons name="trash" size={20} color="white" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ))}
+        <TouchableOpacity style={styles.btnC} onPress={() => setVista('inicio')}>
+          <Text style={styles.btnTextC}>Volver al inicio</Text>
+        </TouchableOpacity>
+      </ScrollView>
     );
   }
 
   return (
-    <View style={styles.mainWrapper}>
-      <View style={styles.curvedHeader}>
-        <Text style={styles.appName}>AURA NEGOCIOS</Text>
-      </View>
-
-      <ScrollView style={styles.profileContainer}>
-        <View style={styles.menuCard}>
-          <TouchableOpacity style={styles.menuItem}>
-            <Ionicons name="calendar-outline" size={24} color={AuraColors.primary} />
-            <Text style={styles.menuItemText}>Gestionar Agenda de Citas</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem}>
-            <Ionicons name="list-outline" size={24} color={AuraColors.primary} />
-            <Text style={styles.menuItemText}>Catalogo de Servicios</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem}>
-            <Ionicons name="qr-code-outline" size={24} color={AuraColors.primary} />
-            <Text style={styles.menuItemText}>Escanear QR de Cliente</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.logoutAction} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={22} color={AuraColors.white} />
-          <Text style={styles.logoutActionText}>Cerrar Sesion</Text>
-        </TouchableOpacity>
-      </ScrollView>
+    <View style={styles.container}>
+      <View style={styles.header}><Text style={styles.headerT}>AURA BUSINESS</Text></View>
+      <TouchableOpacity style={styles.menuItem} onPress={() => setVista('formulario')}>
+        <Ionicons name="add-circle" size={30} color={AuraColors.primary} />
+        <Text style={styles.menuText}>Registrar Servicio</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.menuItem} onPress={() => setVista('catalogo')}>
+        <Ionicons name="list" size={30} color={AuraColors.primary} />
+        <Text style={styles.menuText}>Gestionar mi Catalogo</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mainWrapper: { flex: 1, backgroundColor: AuraColors.background },
-  curvedHeader: { backgroundColor: AuraColors.primary, height: 150, borderBottomLeftRadius: 40, borderBottomRightRadius: 40, alignItems: 'center', paddingTop: 60 },
-  appName: { fontSize: 24, color: AuraColors.white, fontWeight: '900', letterSpacing: 2 },
-  profileContainer: { flex: 1, marginTop: -20, paddingHorizontal: 20 },
-  menuCard: { backgroundColor: AuraColors.white, borderRadius: 20, padding: 10, elevation: 3, marginBottom: 25 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  menuItemText: { flex: 1, marginLeft: 15, fontSize: 16, fontWeight: '600', color: AuraColors.primary },
-  logoutAction: { flexDirection: 'row', backgroundColor: AuraColors.secondary, padding: 18, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  logoutActionText: { color: AuraColors.white, fontSize: 16, fontWeight: 'bold', marginLeft: 10 },
-  restrictedCard: { backgroundColor: AuraColors.white, borderRadius: 20, padding: 30, alignItems: 'center', margin: 20, elevation: 3 },
-  restrictedTitle: { fontSize: 22, color: AuraColors.primary, fontWeight: 'bold', marginVertical: 15 },
-  restrictedText: { fontSize: 15, color: AuraColors.primary, textAlign: 'center', marginBottom: 20 }
+  container: { flex: 1, backgroundColor: AuraColors.background, padding: 20 },
+  scroll: { flex: 1, padding: 5 },
+  header: { backgroundColor: AuraColors.primary, padding: 30, borderRadius: 20, marginBottom: 20 },
+  headerT: { color: 'white', fontWeight: 'bold', textAlign: 'center', fontSize: 20 },
+  sub: { fontSize: 22, fontWeight: 'bold', color: AuraColors.primary, marginBottom: 20, textAlign: 'center' },
+  input: { backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 10, borderWidth: 1, borderColor: '#eee' },
+  btnPri: { backgroundColor: AuraColors.primary, padding: 18, borderRadius: 10, alignItems: 'center', marginTop: 10 },
+  btnSec: { backgroundColor: AuraColors.secondary, padding: 12, borderRadius: 10, marginBottom: 15, alignItems: 'center' },
+  btnC: { padding: 15, alignItems: 'center' },
+  btnText: { color: 'white', fontWeight: 'bold' },
+  btnTextC: { color: AuraColors.primary, fontWeight: 'bold' },
+  imgPre: { width: '100%', height: 200, borderRadius: 10, marginBottom: 15 },
+  menuItem: { backgroundColor: 'white', padding: 25, borderRadius: 15, marginBottom: 15, flexDirection: 'row', alignItems: 'center', elevation: 2 },
+  menuText: { marginLeft: 15, fontWeight: 'bold', color: AuraColors.primary },
+  card: { backgroundColor: 'white', borderRadius: 15, marginBottom: 15, overflow: 'hidden', flexDirection: 'row', elevation: 3 },
+  cardImg: { width: 100, height: 100 },
+  cardInfo: { flex: 1, padding: 10, justifyContent: 'space-between' },
+  cardTitle: { fontWeight: 'bold', color: AuraColors.primary },
+  cardPrice: { color: AuraColors.gold, fontWeight: 'bold' },
+  row: { flexDirection: 'row' },
+  actBtn: { backgroundColor: AuraColors.primary, padding: 8, borderRadius: 5, marginRight: 10 },
+  delBtn: { backgroundColor: '#ff4444', padding: 8, borderRadius: 5 }
 });
