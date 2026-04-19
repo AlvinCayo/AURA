@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView, Image, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +14,15 @@ type ServicioAura = {
   image_url: string;
 };
 
+type CitaAura = {
+  id: string;
+  client_name: string;
+  client_last_name: string;
+  service_name: string;
+  appointment_date: string;
+  status: string;
+};
+
 export default function BusinessDashboard() {
   const [nombre, setNombre] = useState<string>('');
   const [descripcion, setDescripcion] = useState<string>('');
@@ -23,25 +32,51 @@ export default function BusinessDashboard() {
   const [idEdicion, setIdEdicion] = useState<string | null>(null);
   const [vista, setVista] = useState<string>('inicio');
   const [catalogo, setCatalogo] = useState<Record<string, ServicioAura>>({});
+  const [agenda, setAgenda] = useState<Record<string, CitaAura>>({});
+
+  const urlBase = 'https://aura-ukzs.onrender.com/api';
 
   useEffect(() => {
-    if (vista === 'catalogo') {
-      cargarCatalogo();
-    }
-  }, [vista]);
+    if (vista === 'catalogo') cargarCatalogo();
+    if (vista === 'agenda') cargarAgenda();
+  }, Array.of(vista));
 
   const cargarCatalogo = async () => {
     const businessId = await AsyncStorage.getItem('userId');
-    if (!businessId) return;
-
     try {
-      const res = await fetch('https://aura-ukzs.onrender.com/api/services/business/' + businessId);
+      const res = await fetch(urlBase + '/services/business/' + businessId);
+      const data = await res.json();
+      if (data.success) setCatalogo(data.data);
+    } catch {
+      Alert.alert('Error', 'Fallo al cargar el catalogo');
+    }
+  };
+
+  const cargarAgenda = async () => {
+    const businessId = await AsyncStorage.getItem('userId');
+    try {
+      const res = await fetch(urlBase + '/appointments/business/' + businessId);
+      const data = await res.json();
+      if (data.success) setAgenda(data.data);
+    } catch {
+      Alert.alert('Error', 'Fallo al cargar la agenda');
+    }
+  };
+
+  const cambiarEstadoCita = async (id: string, nuevoEstado: string) => {
+    try {
+      const res = await fetch(urlBase + '/appointments/status/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nuevoEstado })
+      });
       const data = await res.json();
       if (data.success) {
-        setCatalogo(data.data);
+        Alert.alert('Exito', 'Estado actualizado correctamente');
+        cargarAgenda();
       }
-    } catch (err) {
-      Alert.alert('Error de Red', 'No se pudo conectar con Render para cargar el catalogo');
+    } catch {
+      Alert.alert('Error', 'Fallo de red al intentar actualizar el estado');
     }
   };
 
@@ -51,8 +86,9 @@ export default function BusinessDashboard() {
       allowsEditing: true,
       quality: 1
     });
-    if (!res.canceled) {
-      setImagenUri(res.assets[0].uri);
+    if (!res.canceled && res.assets) {
+      const primeraImagen = res.assets.shift();
+      if (primeraImagen) setImagenUri(primeraImagen.uri);
     }
   };
 
@@ -69,10 +105,9 @@ export default function BusinessDashboard() {
   const procesarServicio = async () => {
     const vPrecio = parseFloat(precio);
     if (vPrecio < 20) {
-      Alert.alert('Regla de Negocio', 'El precio minimo es 20 Bs');
+      Alert.alert('Aviso', 'El precio minimo es 20 Bs');
       return;
     }
-
     const businessId = await AsyncStorage.getItem('userId');
     const fd = new FormData();
     fd.append('business_id', businessId || '');
@@ -82,81 +117,56 @@ export default function BusinessDashboard() {
     fd.append('duration_minutes', duracion);
 
     if (imagenUri && !imagenUri.startsWith('http')) {
-      const extension = imagenUri.split('.').pop() || 'jpg';
-      fd.append('image', {
-        uri: imagenUri,
-        name: `servicio.${extension}`,
-        type: `image/${extension}`
-      } as any);
-    }
-
-    const urlBase = idEdicion 
-      ? `https://aura-ukzs.onrender.com/api/services/update/${idEdicion}`
-      : `https://aura-ukzs.onrender.com/api/services/create`;
-    
-    const metodoHttp = idEdicion ? 'PUT' : 'POST';
-
-    try {
-      const response = await fetch(urlBase, {
-        method: metodoHttp,
-        body: fd,
-        headers: { 'Accept': 'application/json' }
-      });
-
-      const resData = await response.json();
-      if (resData.success) {
-        Alert.alert('Éxito', 'Servicio guardado correctamente en AURA');
-        limpiarYVolver();
+      if (Platform.OS === 'web') {
+        const resImg = await fetch(imagenUri);
+        const blob = await resImg.blob();
+        fd.append('image', blob, 'foto.jpg');
       } else {
-        Alert.alert('Error del Servidor', resData.error || 'Fallo interno al procesar');
+        const extension = imagenUri.split('.').pop() || 'jpg';
+        fd.append('image', {
+          uri: imagenUri,
+          name: 'servicio.' + extension,
+          type: 'image/' + extension
+        } as any);
       }
-    } catch (error) {
-      Alert.alert('Error de Red', 'No se pudo contactar al servidor de Render');
+    }
+    const url = idEdicion ? urlBase + '/services/update/' + idEdicion : urlBase + '/services/create';
+    const method = idEdicion ? 'PUT' : 'POST';
+    try {
+      const res = await fetch(url, { method: method, body: fd, headers: { 'Accept': 'application/json' } });
+      const data = await res.json();
+      if (data.success) {
+        Alert.alert('Exito', 'Servicio guardado permanentemente en la nube');
+        setVista('inicio');
+        setIdEdicion(null);
+      }
+    } catch {
+      Alert.alert('Error', 'Fallo al procesar con el servidor');
     }
   };
 
   const eliminarServicio = async (id: string) => {
-    Alert.alert('AURA', '¿Eliminar este servicio?', [
-      { text: 'Cancelar' },
-      { text: 'Eliminar', onPress: async () => {
-          try {
-            const res = await fetch(`https://aura-ukzs.onrender.com/api/services/delete/${id}`, { method: 'DELETE' });
-            const data = await res.json();
-            if (data.success) cargarCatalogo();
-          } catch {
-            Alert.alert('Error', 'No se pudo eliminar el servicio');
-          }
-      }}
-    ]);
-  };
-
-  const limpiarYVolver = () => {
-    setNombre(''); setDescripcion(''); setPrecio(''); setDuracion('');
-    setImagenUri(''); setIdEdicion(null); setVista('inicio');
+    try {
+        const res = await fetch(urlBase + '/services/delete/' + id, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) cargarCatalogo();
+    } catch {
+        Alert.alert('Error', 'Fallo de red al borrar');
+    }
   };
 
   if (vista === 'formulario') {
     return (
       <ScrollView style={styles.scroll}>
-        <Text style={styles.sub}>{idEdicion ? 'Editar Servicio' : 'Nuevo Servicio'}</Text>
+        <Text style={styles.sub}>{idEdicion ? 'Actualizar Servicio' : 'Nuevo Servicio'}</Text>
         <TextInput style={styles.input} placeholder="Nombre" value={nombre} onChangeText={setNombre} />
-        <TextInput style={styles.input} placeholder="Descripcion" value={descripcion} onChangeText={setDescripcion} multiline />
+        <TextInput style={styles.input} placeholder="Descripcion" value={descripcion} onChangeText={setDescripcion} />
         <TextInput style={styles.input} placeholder="Precio Bs" keyboardType="numeric" value={precio} onChangeText={setPrecio} />
         <TextInput style={styles.input} placeholder="Minutos" keyboardType="numeric" value={duracion} onChangeText={setDuracion} />
-        
-        <TouchableOpacity style={styles.btnSec} onPress={seleccionarImagen}>
-          <Text style={styles.btnText}>Elegir Foto</Text>
-        </TouchableOpacity>
-
+        <TouchableOpacity style={styles.btnSec} onPress={seleccionarImagen}><Text style={styles.btnText}>Elegir Foto</Text></TouchableOpacity>
         {imagenUri !== '' && <Image source={{ uri: imagenUri }} style={styles.imgPre} />}
-
-        <TouchableOpacity style={styles.btnPri} onPress={procesarServicio}>
-          <Text style={styles.btnText}>Guardar Cambios</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.btnC} onPress={limpiarYVolver}>
-          <Text style={styles.btnTextC}>Cancelar</Text>
-        </TouchableOpacity>
+        <TouchableOpacity style={styles.btnPri} onPress={procesarServicio}><Text style={styles.btnText}>Guardar</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.btnC} onPress={() => setVista('inicio')}><Text style={styles.btnTextC}>Cancelar</Text></TouchableOpacity>
       </ScrollView>
     );
   }
@@ -170,7 +180,7 @@ export default function BusinessDashboard() {
             {ser.image_url ? (
               <Image source={{ uri: ser.image_url }} style={styles.cardImg} />
             ) : (
-              <View style={[styles.cardImg, { backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' }]}>
+              <View style={styles.imgReemplazo}>
                 <Ionicons name="image-outline" size={30} color="#ccc" />
               </View>
             )}
@@ -195,16 +205,49 @@ export default function BusinessDashboard() {
     );
   }
 
+  if (vista === 'agenda') {
+    return (
+      <ScrollView style={styles.scroll}>
+        <Text style={styles.sub}>Agenda de Citas</Text>
+        {Object.values(agenda).map((cita) => (
+          <View key={cita.id} style={styles.cardInfoAgenda}>
+            <Text style={styles.cardTitle}>{cita.client_name} {cita.client_last_name}</Text>
+            <Text>Servicio {cita.service_name}</Text>
+            <Text>Fecha {new Date(cita.appointment_date).toLocaleString()}</Text>
+            <Text style={{ fontWeight: 'bold', color: cita.status === 'pendiente' ? 'orange' : 'green' }}>Estado {cita.status}</Text>
+            {cita.status === 'pendiente' && (
+              <View style={styles.row}>
+                <TouchableOpacity style={styles.actBtn} onPress={() => cambiarEstadoCita(cita.id, 'confirmada')}>
+                  <Text style={styles.btnText}>Confirmar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.delBtn} onPress={() => cambiarEstadoCita(cita.id, 'cancelada')}>
+                  <Text style={styles.btnText}>Rechazar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        ))}
+        <TouchableOpacity style={styles.btnC} onPress={() => setVista('inicio')}>
+          <Text style={styles.btnTextC}>Volver al inicio</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}><Text style={styles.headerT}>AURA BUSINESS</Text></View>
-      <TouchableOpacity style={styles.menuItem} onPress={() => setVista('formulario')}>
+      <TouchableOpacity style={styles.menuItem} onPress={() => { setIdEdicion(null); setVista('formulario'); }}>
         <Ionicons name="add-circle" size={30} color={AuraColors.primary} />
         <Text style={styles.menuText}>Registrar Servicio</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.menuItem} onPress={() => setVista('catalogo')}>
         <Ionicons name="list" size={30} color={AuraColors.primary} />
-        <Text style={styles.menuText}>Gestionar mi Catalogo</Text>
+        <Text style={styles.menuText}>Ver Mi Catalogo</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.menuItem} onPress={() => setVista('agenda')}>
+        <Ionicons name="calendar" size={30} color={AuraColors.primary} />
+        <Text style={styles.menuText}>Gestionar Agenda</Text>
       </TouchableOpacity>
     </View>
   );
@@ -212,7 +255,7 @@ export default function BusinessDashboard() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: AuraColors.background, padding: 20 },
-  scroll: { flex: 1, padding: 5 },
+  scroll: { flex: 1, padding: 10 },
   header: { backgroundColor: AuraColors.primary, padding: 30, borderRadius: 20, marginBottom: 20 },
   headerT: { color: 'white', fontWeight: 'bold', textAlign: 'center', fontSize: 20 },
   sub: { fontSize: 22, fontWeight: 'bold', color: AuraColors.primary, marginBottom: 20, textAlign: 'center' },
@@ -226,11 +269,13 @@ const styles = StyleSheet.create({
   menuItem: { backgroundColor: 'white', padding: 25, borderRadius: 15, marginBottom: 15, flexDirection: 'row', alignItems: 'center', elevation: 2 },
   menuText: { marginLeft: 15, fontWeight: 'bold', color: AuraColors.primary },
   card: { backgroundColor: 'white', borderRadius: 15, marginBottom: 15, overflow: 'hidden', flexDirection: 'row', elevation: 3 },
+  cardInfoAgenda: { backgroundColor: 'white', padding: 20, borderRadius: 15, marginBottom: 15, elevation: 3 },
   cardImg: { width: 100, height: 100 },
+  imgReemplazo: { width: 100, height: 100, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' },
   cardInfo: { flex: 1, padding: 10, justifyContent: 'space-between' },
-  cardTitle: { fontWeight: 'bold', color: AuraColors.primary },
+  cardTitle: { fontWeight: 'bold', color: AuraColors.primary, fontSize: 16 },
   cardPrice: { color: AuraColors.gold, fontWeight: 'bold' },
-  row: { flexDirection: 'row' },
+  row: { flexDirection: 'row', marginTop: 10 },
   actBtn: { backgroundColor: AuraColors.primary, padding: 8, borderRadius: 5, marginRight: 10 },
   delBtn: { backgroundColor: '#ff4444', padding: 8, borderRadius: 5 }
 });

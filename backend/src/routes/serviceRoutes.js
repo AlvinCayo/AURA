@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('../config/cloudinary');
-const { createService, getServicesByBusiness, deleteService, updateService } = require('../controllers/serviceController');
+const { createService, getServicesByBusiness, deleteService, updateService, getAllServices } = require('../controllers/serviceController');
 
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
@@ -19,5 +19,6 @@ router.post('/create', upload.single('image'), createService);
 router.get('/business/:businessId', getServicesByBusiness);
 router.delete('/delete/:id', deleteService);
 router.put('/update/:id', upload.single('image'), updateService);
+router.get('/all', getAllServices);
 
 module.exports = router;

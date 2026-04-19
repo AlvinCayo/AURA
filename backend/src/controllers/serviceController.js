@@ -4,7 +4,7 @@ async function createService(req, res) {
   try {
     const { business_id, name, description, price, duration_minutes } = req.body;
     let image_url = '';
-    
+
     if (req.file) {
       image_url = req.file.path;
     }
@@ -29,7 +29,7 @@ async function getServicesByBusiness(req, res) {
     const queryText = 'SELECT * FROM services WHERE business_id = $1';
     const valores = Array.of(businessId);
     const result = await client.query(queryText, valores);
-    
+
     const dataObj = Object.assign({}, result.rows);
     res.status(200).json({ success: true, data: dataObj });
   } catch {
@@ -49,13 +49,11 @@ async function deleteService(req, res) {
   }
 }
 
-// ... (mantener funciones anteriores: createService, getServicesByBusiness, deleteService)
-
 async function updateService(req, res) {
   try {
     const { id } = req.params;
     const { name, description, price, duration_minutes } = req.body;
-    
+
     if (parseFloat(price) < 20) {
       return res.status(400).json({ success: false, error: 'Precio minimo 20 Bs' });
     }
@@ -74,10 +72,20 @@ async function updateService(req, res) {
 
     const result = await client.query(queryText, valores);
     res.status(200).json({ success: true, data: result.rows.shift() });
-  } catch (error) {
-    console.error('Error en updateService:', error);
+  } catch {
     res.status(500).json({ success: false, error: 'Error interno' });
   }
 }
 
-module.exports = { createService, getServicesByBusiness, deleteService, updateService };
+async function getAllServices(req, res) {
+  try {
+    const queryText = 'SELECT * FROM services';
+    const result = await client.query(queryText);
+    const dataObj = Object.assign({}, result.rows);
+    res.status(200).json({ success: true, data: dataObj });
+  } catch {
+    res.status(500).json({ success: false, error: 'Fallo general' });
+  }
+}
+
+module.exports = { createService, getServicesByBusiness, deleteService, updateService, getAllServices };
