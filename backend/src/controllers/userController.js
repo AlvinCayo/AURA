@@ -1,29 +1,30 @@
 const client = require('../config/db');
 
+// Función auxiliar interna
 async function logUserActivity(userId, action) {
   const queryText = 'INSERT INTO activity_logs (user_id, action) VALUES ($1, $2)';
   const values = { a: userId, b: action };
   await client.query(queryText, Object.values(values));
 }
 
+// --- Funciones de Usuario (Auth) ---
+async function registerUser(req, res) { /* ... tu código de registro ... */ }
+async function loginUser(req, res) { /* ... tu código de login ... */ }
+
+// --- Funciones de Perfil ---
 async function getUserProfile(req, res) {
   const userId = req.params.id;
   const userRole = req.params.role;
-
   const qClient = 'SELECT first_name, last_name, phone, profile_picture FROM client_profiles WHERE user_id = $1';
   const qBusiness = 'SELECT representative_name, representative_last_name, phone, profile_picture, license_pdf_url, is_approved FROM business_profiles WHERE user_id = $1';
-
-  const isBusiness = userRole === 'centro';
+  
+  const isBusiness = userRole === 'centro' || userRole === 'business';
   const queryText = isBusiness ? qBusiness : qClient;
-  const values = { a: userId };
 
   try {
-    const result = await client.query(queryText, Object.values(values));
-    const { rowCount, rows } = result;
-
-    if (rowCount > 0) {
-      const { 0: profile } = rows;
-      res.json({ success: true, profile });
+    const result = await client.query(queryText, [userId]);
+    if (result.rowCount > 0) {
+      res.json({ success: true, profile: result.rows[0] });
     } else {
       res.status(404).json({ success: false });
     }
@@ -34,18 +35,13 @@ async function getUserProfile(req, res) {
 
 async function updateProfilePhoto(req, res) {
   const userId = req.params.id;
-  const role = req.body.role;
-  const photoUrl = req.body.photoUrl;
-
+  const { role, photoUrl } = req.body;
   const qClient = 'UPDATE client_profiles SET profile_picture = $1 WHERE user_id = $2';
   const qBusiness = 'UPDATE business_profiles SET profile_picture = $1 WHERE user_id = $2';
-
-  const isBusiness = role === 'centro';
-  const queryText = isBusiness ? qBusiness : qClient;
-  const values = { a: photoUrl, b: userId };
+  const queryText = (role === 'centro' || role === 'business') ? qBusiness : qClient;
 
   try {
-    await client.query(queryText, Object.values(values));
+    await client.query(queryText, [photoUrl, userId]);
     await logUserActivity(userId, 'Fotografia de perfil actualizada');
     res.json({ success: true });
   } catch (error) {
@@ -55,20 +51,13 @@ async function updateProfilePhoto(req, res) {
 
 async function updateProfile(req, res) {
   const userId = req.params.id;
-  const role = req.body.role;
-  const firstName = req.body.firstName;
-  const lastName = req.body.lastName;
-  const phone = req.body.phone;
-
-  const isBusiness = role === 'centro';
+  const { role, firstName, lastName, phone } = req.body;
   const queryClient = 'UPDATE client_profiles SET first_name = $1, last_name = $2, phone = $3 WHERE user_id = $4';
   const queryBusiness = 'UPDATE business_profiles SET representative_name = $1, representative_last_name = $2, phone = $3 WHERE user_id = $4';
-
-  const queryText = isBusiness ? queryBusiness : queryClient;
-  const values = { a: firstName, b: lastName, c: phone, d: userId };
+  const queryText = (role === 'centro' || role === 'business') ? queryBusiness : queryClient;
 
   try {
-    await client.query(queryText, Object.values(values));
+    await client.query(queryText, [firstName, lastName, phone, userId]);
     await logUserActivity(userId, 'Perfil modificado');
     res.json({ success: true });
   } catch (error) {
@@ -78,11 +67,8 @@ async function updateProfile(req, res) {
 
 async function deactivateAccount(req, res) {
   const userId = req.params.id;
-  const queryText = 'UPDATE users SET is_active = FALSE WHERE id = $1';
-  const values = { a: userId };
-
   try {
-    await client.query(queryText, Object.values(values));
+    await client.query('UPDATE users SET is_active = FALSE WHERE id = $1', [userId]);
     await logUserActivity(userId, 'Cuenta desactivada');
     res.json({ success: true });
   } catch (error) {
@@ -92,11 +78,9 @@ async function deactivateAccount(req, res) {
 
 async function uploadNewLicense(req, res) {
   const userId = req.params.id;
-  const licenseUrl = req.body.licenseUrl;
-  const queryText = 'UPDATE business_profiles SET license_pdf_url = $1 WHERE user_id = $2';
-  const values = { a: licenseUrl, b: userId };
+  const { licenseUrl } = req.body;
   try {
-    await client.query(queryText, Object.values(values));
+    await client.query('UPDATE business_profiles SET license_pdf_url = $1 WHERE user_id = $2', [licenseUrl, userId]);
     await logUserActivity(userId, 'Nueva licencia de funcionamiento subida');
     res.json({ success: true });
   } catch (error) {
@@ -104,22 +88,20 @@ async function uploadNewLicense(req, res) {
   }
 }
 
+// --- Funciones de Negocio (Horarios) ---
 async function updateBusinessProfile(req, res) {
-  const client = require('../config/db');
   try {
     const { id } = req.params;
     const { opening_time, closing_time, working_days } = req.body;
     const queryText = "UPDATE users SET opening_time = $1, closing_time = $2, working_days = $3 WHERE id = $4 RETURNING *";
-    const valores = Array.of(opening_time, closing_time, working_days, id);
-    const result = await client.query(queryText, valores);
-    res.status(200).json({ success: true, data: result.rows.shift() });
+    const result = await client.query(queryText, [opening_time, closing_time, working_days, id]);
+    res.status(200).json({ success: true, data: result.rows[0] });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error al actualizar horarios' });
   }
 }
 
 async function getAllBusinesses(req, res) {
-  const client = require('../config/db');
   try {
     const queryText = "SELECT id, first_name, profile_picture, opening_time, closing_time, working_days FROM users WHERE role = 'business'";
     const result = await client.query(queryText);
@@ -129,18 +111,15 @@ async function getAllBusinesses(req, res) {
   }
 }
 
-async function updateBusinessProfile(req, res) {
-  const client = require('../config/db');
-  try {
-    const { id } = req.params;
-    const { opening_time, closing_time, working_days } = req.body;
-    const queryText = "UPDATE users SET opening_time = $1, closing_time = $2, working_days = $3 WHERE id = $4 RETURNING *";
-    const valores = Array.of(opening_time, closing_time, working_days, id);
-    const result = await client.query(queryText, valores);
-    res.status(200).json({ success: true, data: result.rows.shift() });
-  } catch (error) {
-    res.status(500).json({ success: false, error: 'Error al actualizar horarios' });
-  }
-}
-
-module.exports = { registerUser, loginUser, getUserProfile, getAllBusinesses, updateBusinessProfile };
+// EXPORTACIÓN ÚNICA CON TODAS LAS FUNCIONES
+module.exports = {
+  registerUser,
+  loginUser,
+  getUserProfile,
+  updateProfilePhoto,
+  updateProfile,
+  deactivateAccount,
+  uploadNewLicense,
+  updateBusinessProfile,
+  getAllBusinesses
+};

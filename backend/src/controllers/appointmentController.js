@@ -60,11 +60,11 @@ async function getBusinessAppointments(req, res) {
 async function updateAppointmentStatus(req, res) {
   try {
     const { id } = req.params;
-    const { status } = req.body; // 'confirmada', 'cancelada', 'completada'
+    const { status } = req.body; 
     const queryText = 'UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *';
-    const result = await client.query(queryText, Array.of(status, id));
-    res.status(200).json({ success: true, data: result.rows.shift() });
-  } catch {
+    const result = await client.query(queryText, [status, id]); // Uso directo de array para evitar errores de tipos
+    res.status(200).json({ success: true, data: result.rows[0] });
+  } catch (error) {
     res.status(500).json({ success: false, error: 'Error al actualizar estado' });
   }
 }
