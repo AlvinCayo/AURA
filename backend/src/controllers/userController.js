@@ -130,10 +130,18 @@ async function updateBusinessProfile(req, res) {
 }
 
 async function getAllBusinesses(req, res) {
+  const client = require('../config/db');
   try {
-    const queryText = "SELECT id, first_name, profile_picture, opening_time, closing_time, working_days FROM users WHERE role = 'business' OR role = 'centro'";
+    const queryText = `
+      SELECT u.id, u.opening_time, u.closing_time, u.working_days, 
+             b.business_name, b.representative_name, b.profile_picture, 
+             b.zone, b.street, b.business_category, b.shop_photos
+      FROM users u
+      JOIN business_profiles b ON u.id = b.user_id
+      WHERE u.role = 'business' OR u.role = 'centro'
+    `;
     const result = await client.query(queryText);
-    res.status(200).json({ success: true, data: Object.assign({}, result.rows) });
+    res.status(200).json({ success: true, data: result.rows });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error al obtener negocios' });
   }

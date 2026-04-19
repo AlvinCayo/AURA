@@ -4,8 +4,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { WebView } from 'react-native-webview';
 import { AuraColors } from '../../constants/Colors';
+
+// IMPORTACIÓN CONDICIONAL DE WEBVIEW PARA EVITAR CRASHEOS EN LA WEB
+let WebViewComp: any = null;
+if (Platform.OS !== 'web') {
+  WebViewComp = require('react-native-webview').WebView;
+}
 
 type ServicioAura = { id: string; name: string; description: string; price: string; duration_minutes: number; image_url: string; };
 type CitaAura = { 
@@ -17,6 +22,7 @@ export default function BusinessDashboard() {
   const [vista, setVista] = useState<string>('inicio');
   const [modoPerfil, setModoPerfil] = useState<'vista' | 'edicion'>('vista');
   
+  // Estados para Servicios
   const [nombre, setNombre] = useState<string>('');
   const [descripcion, setDescripcion] = useState<string>('');
   const [precio, setPrecio] = useState<string>('');
@@ -27,6 +33,7 @@ export default function BusinessDashboard() {
   const [catalogo, setCatalogo] = useState<Record<string, ServicioAura>>({});
   const [agenda, setAgenda] = useState<Record<string, CitaAura>>({});
 
+  // Estados del Perfil
   const [businessName, setBusinessName] = useState('');
   const [perfilFoto, setPerfilFoto] = useState<string>('');
   const [repName, setRepName] = useState('');
@@ -43,6 +50,7 @@ export default function BusinessDashboard() {
   const [lng, setLng] = useState('-68.1500');
   const [shopPhotos, setShopPhotos] = useState<string[]>([]);
 
+  // Estados de Horario
   const [horaApertura, setHoraApertura] = useState<string>('');
   const [horaCierre, setHoraCierre] = useState<string>('');
   const [diasTrabajo, setDiasTrabajo] = useState<string>('');
@@ -55,8 +63,10 @@ export default function BusinessDashboard() {
     if (vista === 'horarios' || vista === 'perfil_negocio') cargarPerfilNegocio();
   }, [vista]);
 
+  // Escuchador Seguro para el Mapa en la Web
   useEffect(() => {
     if (Platform.OS === 'web') {
+      const globalWindow = window as any;
       const handleWebMessage = (event: any) => {
         try {
           const data = JSON.parse(event.data);
@@ -66,8 +76,8 @@ export default function BusinessDashboard() {
           }
         } catch (e) {}
       };
-      window.addEventListener('message', handleWebMessage);
-      return () => window.removeEventListener('message', handleWebMessage);
+      globalWindow.addEventListener('message', handleWebMessage);
+      return () => globalWindow.removeEventListener('message', handleWebMessage);
     }
   }, []);
 
@@ -102,7 +112,6 @@ export default function BusinessDashboard() {
     }
   };
 
-  // --- NUEVA FUNCIÓN: Transforma archivo local en URL Web Real ---
   const subirArchivoALaNube = async (uri: string, isPdf: boolean = false) => {
     const fd = new FormData();
     const extension = uri.split('.').pop() || 'jpg';
@@ -124,7 +133,7 @@ export default function BusinessDashboard() {
     });
     const data = await res.json();
     if (!data.success) throw new Error('Fallo la subida');
-    return data.url; // Retorna enlace oficial de Cloudinary
+    return data.url; 
   };
 
   const cambiarLogo = async () => {
@@ -335,19 +344,32 @@ export default function BusinessDashboard() {
     </html>
   `;
 
+  // Apertura Segura para el PDF o Imagen
   const renderizarLicencia = (url: string) => {
     if (!url) return <Text style={styles.textoGris}>No se ha registrado ninguna licencia vigente.</Text>;
-    if (url.toLowerCase().endsWith('.pdf')) {
+    
+    const secureUrl = url.replace('http://', 'https://');
+
+    const abrirArchivo = async () => {
+      try {
+        await Linking.openURL(secureUrl);
+      } catch (e) {
+        Alert.alert("Aviso", "No se pudo abrir el enlace automáticamente.");
+      }
+    };
+
+    if (secureUrl.toLowerCase().includes('.pdf')) {
       return (
-        <TouchableOpacity style={styles.btnPdf} onPress={() => Linking.openURL(url)}>
+        <TouchableOpacity style={styles.btnPdf} onPress={abrirArchivo}>
           <Ionicons name="document-text" size={40} color={AuraColors.primary} />
-          <Text style={styles.txtPdf}>Abrir Documento PDF Oficial</Text>
+          <Text style={styles.txtPdf}>Ver Documento PDF Original</Text>
         </TouchableOpacity>
       );
     }
+    
     return (
-      <TouchableOpacity onPress={() => Linking.openURL(url)}>
-         <Image source={{ uri: url }} style={styles.licenciaImg} />
+      <TouchableOpacity onPress={abrirArchivo}>
+         <Image source={{ uri: secureUrl }} style={styles.licenciaImg} />
       </TouchableOpacity>
     );
   };
@@ -389,9 +411,12 @@ export default function BusinessDashboard() {
             <Text style={styles.textoGris}>{addressNotes || 'Sin referencias extras'}</Text>
             <View style={[styles.mapContainer, {height: 200, pointerEvents: 'none'}]}>
               {Platform.OS === 'web' ? (
-                <iframe srcDoc={getMapHtml(false)} style={{ width: '100%', height: '100%', border: 'none' }} />
+                React.createElement('iframe', {
+                  srcDoc: getMapHtml(false),
+                  style: { width: '100%', height: '100%', border: 'none' }
+                })
               ) : (
-                <WebView originWhitelist={['*']} source={{ html: getMapHtml(false) }} scrollEnabled={false} />
+                WebViewComp ? <WebViewComp originWhitelist={['*']} source={{ html: getMapHtml(false) }} scrollEnabled={false} /> : null
               )}
             </View>
           </View>
@@ -464,14 +489,17 @@ export default function BusinessDashboard() {
           <Text style={styles.label}>Ubicación en Mapa: Arrastra el marcador rojo</Text>
           <View style={styles.mapContainer}>
             {Platform.OS === 'web' ? (
-              <iframe srcDoc={getMapHtml(true)} style={{ width: '100%', height: '100%', border: 'none' }} />
+              React.createElement('iframe', {
+                srcDoc: getMapHtml(true),
+                style: { width: '100%', height: '100%', border: 'none' }
+              })
             ) : (
-              <WebView 
+              WebViewComp ? <WebViewComp 
                 originWhitelist={['*']} 
                 source={{ html: getMapHtml(true) }} 
-                onMessage={(e) => { const data = JSON.parse(e.nativeEvent.data); setLat(data.lat.toString()); setLng(data.lng.toString()); }}
+                onMessage={(e: any) => { const data = JSON.parse(e.nativeEvent.data); setLat(data.lat.toString()); setLng(data.lng.toString()); }}
                 scrollEnabled={false}
-              />
+              /> : null
             )}
           </View>
 
@@ -497,7 +525,7 @@ export default function BusinessDashboard() {
             <Ionicons name="document-text" size={20} color={AuraColors.primary} />
             <Text style={[styles.btnTextOscuro, {marginLeft: 10}]}>Actualizar Foto o PDF de Licencia</Text>
           </TouchableOpacity>
-          {licenseUrl !== '' && <Text style={{color: 'green', marginBottom: 10}}>✓ Documento listo en la nube</Text>}
+          {licenseUrl !== '' && <Text style={{color: 'green', marginBottom: 10}}>✓ Documento cargado temporalmente</Text>}
 
           <TouchableOpacity style={styles.btnPri} onPress={guardarPerfilCompleto}>
             <Text style={styles.btnText}>Guardar Todos los Cambios</Text>
@@ -508,7 +536,7 @@ export default function BusinessDashboard() {
     }
   }
 
-  // --- LAS OTRAS VISTAS (Horarios, Agenda, Formulario, Catalogo) SE MANTIENEN IGUAL ---
+  // --- OTRAS VISTAS ---
   if (vista === 'horarios') {
     return (
       <ScrollView style={styles.scroll}>
@@ -632,7 +660,6 @@ const styles = StyleSheet.create({
   headerT: { color: 'white', fontWeight: 'bold', textAlign: 'center', fontSize: 20 },
   sub: { fontSize: 22, fontWeight: 'bold', color: AuraColors.primary, marginBottom: 20, textAlign: 'center' },
   
-  // Estilos de Vista Perfil (FB Style Premium)
   portadaContainer: { height: 180, backgroundColor: '#ddd', marginBottom: 60, position: 'relative' },
   portadaImg: { width: '100%', height: '100%', resizeMode: 'cover' },
   logoOverlayContainer: { position: 'absolute', bottom: -50, alignSelf: 'center', zIndex: 10, elevation: 5 },
@@ -646,23 +673,19 @@ const styles = StyleSheet.create({
   seccionCard: { backgroundColor: 'white', padding: 20, borderRadius: 16, marginBottom: 15, elevation: 2, shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.1, shadowRadius: 4 },
   labelTitulo: { fontSize: 18, fontWeight: 'bold', color: '#1c1e21', marginBottom: 15 },
   
-  // Selectores de Categoría
   selectorCategoria: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
   btnCategoria: { flex: 1, paddingVertical: 10, borderWidth: 1, borderColor: AuraColors.primary, borderRadius: 8, alignItems: 'center', marginHorizontal: 2 },
   btnCategoriaActiva: { backgroundColor: AuraColors.primary },
   txtCategoria: { color: AuraColors.primary, fontWeight: 'bold', fontSize: 12 },
   txtCategoriaActiva: { color: 'white', fontWeight: 'bold', fontSize: 12 },
 
-  // Documentos
   btnPdf: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9f9f9', padding: 15, borderRadius: 10, borderWidth: 1, borderColor: '#ddd' },
   txtPdf: { marginLeft: 15, color: AuraColors.primary, fontWeight: 'bold' },
   
-  // Galería
   fotoGaleriaContainer: { shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.2, shadowRadius: 4, elevation: 3, marginRight: 15, backgroundColor: 'white', borderRadius: 12 },
   fotoGaleriaMejorada: { width: 260, height: 160, borderRadius: 12, resizeMode: 'cover' },
   licenciaImg: { width: '100%', height: 220, resizeMode: 'contain', borderRadius: 10, borderWidth: 1, borderColor: '#eee' },
   
-  // Estilos de Formularios
   label: { fontWeight: 'bold', marginTop: 15, marginBottom: 5, color: '#444' },
   input: { backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 10, borderWidth: 1, borderColor: '#eee' },
   btnPri: { backgroundColor: AuraColors.primary, padding: 18, borderRadius: 10, alignItems: 'center', marginTop: 20 },
@@ -675,7 +698,6 @@ const styles = StyleSheet.create({
   centroAvatar: { alignItems: 'center', marginBottom: 10, marginTop: 10 },
   logoEmpresa: { width: 120, height: 120, borderRadius: 60, borderWidth: 3, borderColor: AuraColors.gold, marginBottom: 15 },
   
-  // Otros
   imgPre: { width: '100%', height: 200, borderRadius: 10, marginBottom: 15 },
   menuItem: { backgroundColor: 'white', padding: 25, borderRadius: 15, marginBottom: 15, flexDirection: 'row', alignItems: 'center', elevation: 2 },
   menuText: { marginLeft: 15, fontWeight: 'bold', color: AuraColors.primary },

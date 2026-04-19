@@ -5,7 +5,11 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { AuraColors } from '../../constants/Colors';
 
-type CentroAura = { id: string; first_name: string; profile_picture: string; opening_time: string; closing_time: string; working_days: string; };
+type CentroAura = { 
+  id: string; business_name: string; representative_name: string; profile_picture: string; 
+  opening_time: string; closing_time: string; working_days: string; 
+  zone: string; street: string; business_category: string; shop_photos: string[];
+};
 type ServicioAura = { id: string; business_id: string; name: string; description: string; price: string; duration_minutes: number; image_url: string; };
 type MiReserva = { id: string; service_name: string; business_name: string; appointment_date: string; status: string; total_price: string; reservation_fee: string; };
 
@@ -13,11 +17,16 @@ export default function ClientDashboard() {
   const enrutador = useRouter();
   const [nombreUsuario, setNombreUsuario] = useState<string>('');
   const [vistaActual, setVistaActual] = useState<string>('inicio');
-  const [listaCentros, setListaCentros] = useState<Record<string, CentroAura>>({});
+  
+  const [listaCentros, setListaCentros] = useState<CentroAura[]>([]);
   const [serviciosCentro, setServiciosCentro] = useState<Record<string, ServicioAura>>({});
   const [centroSeleccionado, setCentroSeleccionado] = useState<CentroAura | null>(null);
   const [servicioSeleccionado, setServicioSeleccionado] = useState<ServicioAura | null>(null);
   const [misReservas, setMisReservas] = useState<Record<string, MiReserva>>({});
+  
+  // Estados para Filtros y Búsqueda
+  const [busqueda, setBusqueda] = useState<string>('');
+  const [categoriaFiltro, setCategoriaFiltro] = useState<string>('Todos');
   
   // Datos para agendar
   const [fechaElegida, setFechaElegida] = useState<string>('');
@@ -25,7 +34,7 @@ export default function ClientDashboard() {
 
   const urlBase = 'https://aura-ukzs.onrender.com/api';
 
-  useEffect(() => { cargarPerfil(); }, new Array());
+  useEffect(() => { cargarPerfil(); }, []);
 
   const cargarPerfil = async () => {
     const id = await AsyncStorage.getItem('userId');
@@ -43,8 +52,13 @@ export default function ClientDashboard() {
     try {
       const res = await fetch(urlBase + '/users/businesses');
       const datos = await res.json();
-      if (datos.success) { setListaCentros(datos.data); setVistaActual('centros'); }
-    } catch { Alert.alert('Error', 'Fallo al cargar las barberías'); }
+      if (datos.success) { 
+        // Convertimos el objeto en array si es necesario
+        const centrosArray = Array.isArray(datos.data) ? datos.data : Object.values(datos.data);
+        setListaCentros(centrosArray); 
+        setVistaActual('centros'); 
+      }
+    } catch { Alert.alert('Error', 'Fallo al cargar los establecimientos'); }
   };
 
   const verServiciosDelCentro = async (centro: CentroAura) => {
@@ -65,8 +79,6 @@ export default function ClientDashboard() {
   const solicitarCita = async () => {
     if (!fechaElegida || !horaElegida) { Alert.alert('Aviso', 'Ingresa la fecha y hora'); return; }
     const idCliente = await AsyncStorage.getItem('userId');
-    
-    // Formato simple para combinar fecha y hora
     const fechaTurno = new Date(`${fechaElegida}T${horaElegida}:00`).toISOString();
 
     const cargaUtil = {
@@ -115,7 +127,6 @@ export default function ClientDashboard() {
     } catch { Alert.alert('Error', 'Fallo en la pasarela de pago'); }
   };
 
-  // Componente Visual de Cadena (AliExpress Style)
   const RastroEstado = ({ estado }: { estado: string }) => {
     const pasos = [
       { id: 'solicitada', icono: 'time', titulo: 'Solicitada' },
@@ -142,30 +153,84 @@ export default function ClientDashboard() {
   };
 
   if (vistaActual === 'centros') {
+    // LÓGICA DE FILTRADO
+    const centrosFiltrados = listaCentros.filter((c) => {
+      const coincideCategoria = categoriaFiltro === 'Todos' || c.business_category === categoriaFiltro;
+      const textoBusqueda = busqueda.toLowerCase();
+      const nombreNegocio = (c.business_name || c.representative_name || '').toLowerCase();
+      const zonaNegocio = (c.zone || '').toLowerCase();
+      const coincideTexto = nombreNegocio.includes(textoBusqueda) || zonaNegocio.includes(textoBusqueda);
+      
+      return coincideCategoria && coincideTexto;
+    });
+
+    const categorias = ['Todos', 'Barbería', 'Salón de Belleza', 'Unisex'];
+
     return (
       <View style={estilos.contenedorPrincipal}>
-        <View style={estilos.cabeceraCurvaMenor}><Text style={estilos.nombreApp}>BARBERÍAS Y SALONES</Text></View>
+        <View style={estilos.cabeceraFiltros}>
+          <View style={estilos.buscadorContainer}>
+            <Ionicons name="search" size={20} color="#888" style={{marginLeft: 10}} />
+            <TextInput 
+              style={estilos.inputBuscador} 
+              placeholder="Buscar por nombre o zona (Ej. Sopocachi)" 
+              value={busqueda} 
+              onChangeText={setBusqueda} 
+            />
+          </View>
+          
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={estilos.scrollFiltros}>
+            {categorias.map(cat => (
+              <TouchableOpacity 
+                key={cat} 
+                style={[estilos.chipFiltro, categoriaFiltro === cat && estilos.chipFiltroActivo]}
+                onPress={() => setCategoriaFiltro(cat)}
+              >
+                <Text style={categoriaFiltro === cat ? estilos.txtChipActivo : estilos.txtChip}>{cat}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
         <ScrollView style={estilos.scrollPadding}>
-          {Object.values(listaCentros).map((c) => (
+          <Text style={{fontWeight: 'bold', color: '#555', marginBottom: 15, marginTop: 10}}>
+            {centrosFiltrados.length} resultados encontrados
+          </Text>
+
+          {centrosFiltrados.map((c) => (
             <TouchableOpacity key={c.id} style={estilos.tarjetaCentro} onPress={() => verServiciosDelCentro(c)}>
-              {c.profile_picture ? <Image source={{ uri: c.profile_picture }} style={estilos.imagenCentro} /> : <View style={estilos.imagenCentro}><Ionicons name="storefront" size={40} color="#ccc" /></View>}
+              <Image 
+                source={{ uri: c.shop_photos && c.shop_photos.length > 0 ? c.shop_photos[0] : 'https://via.placeholder.com/400x150?text=AURA' }} 
+                style={estilos.portadaCentro} 
+              />
+              <View style={estilos.logoSuperpuesto}>
+                {c.profile_picture ? <Image source={{ uri: c.profile_picture }} style={estilos.imagenLogo} /> : <View style={estilos.imagenLogo}><Ionicons name="storefront" size={24} color="#ccc" /></View>}
+              </View>
+
               <View style={estilos.infoServicio}>
-                <Text style={estilos.tituloServicio}>{c.first_name}</Text>
-                <Text style={estilos.detalleServicio}><Ionicons name="calendar" /> {c.working_days}</Text>
-                <Text style={estilos.detalleServicio}><Ionicons name="time" /> {c.opening_time} - {c.closing_time}</Text>
+                <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+                  <Text style={estilos.tituloServicio}>{c.business_name || c.representative_name}</Text>
+                  <Text style={estilos.badgeCategoria}>{c.business_category || 'Centro'}</Text>
+                </View>
+                <Text style={estilos.detalleServicio}><Ionicons name="location" size={14}/> {c.zone ? `${c.zone}, ${c.street}` : 'Zona no especificada'}</Text>
+                <Text style={estilos.detalleServicio}><Ionicons name="time" size={14}/> Abierto de {c.opening_time} a {c.closing_time}</Text>
               </View>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity style={estilos.botonVolver} onPress={() => setVistaActual('inicio')}><Text style={estilos.textoBotonPrimario}>Volver</Text></TouchableOpacity>
+          {centrosFiltrados.length === 0 && (
+             <Text style={{textAlign: 'center', marginTop: 50, color: '#888'}}>No se encontraron establecimientos con esa búsqueda.</Text>
+          )}
+          <TouchableOpacity style={estilos.botonVolver} onPress={() => setVistaActual('inicio')}><Text style={estilos.textoBotonPrimario}>Volver al Menú</Text></TouchableOpacity>
         </ScrollView>
       </View>
     );
   }
 
+  // --- LAS OTRAS VISTAS SE MANTIENEN IGUAL (Servicios, Agendar, Reservas) ---
   if (vistaActual === 'servicios_centro') {
     return (
       <View style={estilos.contenedorPrincipal}>
-        <View style={estilos.cabeceraCurvaMenor}><Text style={estilos.nombreApp}>{centroSeleccionado?.first_name.toUpperCase()}</Text></View>
+        <View style={estilos.cabeceraCurvaMenor}><Text style={estilos.nombreApp}>{centroSeleccionado?.business_name?.toUpperCase() || centroSeleccionado?.representative_name?.toUpperCase()}</Text></View>
         <ScrollView style={estilos.scrollPadding}>
           {Object.values(serviciosCentro).map((s) => (
             <View key={s.id} style={estilos.tarjetaCentro}>
@@ -193,8 +258,8 @@ export default function ClientDashboard() {
         <View style={estilos.tarjetaCentro}>
           <View style={estilos.infoServicio}>
             <Text style={estilos.tituloServicio}>{servicioSeleccionado?.name}</Text>
-            <Text style={estilos.detalleServicio}>Centro: {centroSeleccionado?.first_name}</Text>
-            <Text style={estilos.detalleServicio}>Horario de atención: {centroSeleccionado?.opening_time} a {centroSeleccionado?.closing_time}</Text>
+            <Text style={estilos.detalleServicio}>Centro: {centroSeleccionado?.business_name || centroSeleccionado?.representative_name}</Text>
+            <Text style={estilos.detalleServicio}>Horario: {centroSeleccionado?.opening_time} a {centroSeleccionado?.closing_time}</Text>
             
             <Text style={{marginTop: 20, fontWeight: 'bold'}}>Fecha (YYYY-MM-DD):</Text>
             <TextInput style={estilos.inputBox} placeholder="Ej. 2026-05-20" value={fechaElegida} onChangeText={setFechaElegida} />
@@ -209,7 +274,7 @@ export default function ClientDashboard() {
             </View>
 
             <TouchableOpacity style={estilos.botonReservar} onPress={solicitarCita}>
-              <Text style={estilos.textoBotonBlanco}>Enviar Solicitud al Barbero</Text>
+              <Text style={estilos.textoBotonBlanco}>Enviar Solicitud</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -254,7 +319,7 @@ export default function ClientDashboard() {
 
   return (
     <View style={estilos.contenedorPrincipal}>
-      <View style={estilos.cabeceraCurva}><Text style={estilos.nombreApp}>AURA CLIENTE</Text></View>
+      <View style={estilos.cabeceraCurva}><Text style={estilos.nombreApp}>AURA</Text></View>
       <ScrollView style={{ paddingHorizontal: 20, marginTop: -20 }}>
         <Text style={{fontSize: 22, fontWeight: 'bold', marginBottom: 20}}>Hola, {nombreUsuario}</Text>
         <View style={estilos.tarjetaMenu}>
@@ -277,15 +342,32 @@ const estilos = StyleSheet.create({
   cabeceraCurva: { backgroundColor: AuraColors.primary, height: 150, borderBottomLeftRadius: 40, borderBottomRightRadius: 40, alignItems: 'center', paddingTop: 60 },
   cabeceraCurvaMenor: { backgroundColor: AuraColors.primary, height: 120, borderBottomLeftRadius: 30, borderBottomRightRadius: 30, alignItems: 'center', paddingTop: 50, marginBottom: 20 },
   nombreApp: { fontSize: 24, color: AuraColors.white, fontWeight: '900', letterSpacing: 2 },
+  
+  // Buscador y Filtros
+  cabeceraFiltros: { backgroundColor: AuraColors.primary, paddingBottom: 20, paddingTop: 50, borderBottomLeftRadius: 25, borderBottomRightRadius: 25, elevation: 5 },
+  buscadorContainer: { flexDirection: 'row', backgroundColor: 'white', marginHorizontal: 20, borderRadius: 12, alignItems: 'center', paddingVertical: 2, elevation: 2 },
+  inputBuscador: { flex: 1, paddingVertical: 12, paddingHorizontal: 10, fontSize: 16 },
+  scrollFiltros: { paddingLeft: 20, marginTop: 15, maxHeight: 40 },
+  chipFiltro: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginRight: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)' },
+  chipFiltroActivo: { backgroundColor: AuraColors.gold, borderColor: AuraColors.gold },
+  txtChip: { color: 'white', fontWeight: '600' },
+  txtChipActivo: { color: 'white', fontWeight: 'bold' },
+
   scrollPadding: { paddingHorizontal: 15 },
   tarjetaMenu: { backgroundColor: AuraColors.white, borderRadius: 20, padding: 10, elevation: 3 },
   itemMenu: { flexDirection: 'row', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   textoItemMenu: { flex: 1, marginLeft: 15, fontSize: 16, fontWeight: '600', color: AuraColors.primary },
-  tarjetaCentro: { backgroundColor: AuraColors.white, borderRadius: 15, overflow: 'hidden', marginBottom: 20, elevation: 3 },
-  imagenCentro: { width: 100, height: 100, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginTop: 15, borderRadius: 50 },
+  
+  // Tarjetas de Negocios
+  tarjetaCentro: { backgroundColor: AuraColors.white, borderRadius: 16, overflow: 'hidden', marginBottom: 20, elevation: 4 },
+  portadaCentro: { width: '100%', height: 120, backgroundColor: '#eee' },
+  logoSuperpuesto: { position: 'absolute', top: 80, left: 15, zIndex: 10 },
+  imagenLogo: { width: 60, height: 60, borderRadius: 30, borderWidth: 3, borderColor: 'white', backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+  badgeCategoria: { backgroundColor: '#f0f4ff', color: AuraColors.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, fontSize: 12, fontWeight: 'bold', overflow: 'hidden' },
+
   imgCatalogo: { width: '100%', height: 150 },
-  infoServicio: { padding: 15 },
-  tituloServicio: { fontSize: 18, fontWeight: 'bold', color: AuraColors.primary, marginBottom: 5 },
+  infoServicio: { padding: 15, paddingTop: 25 },
+  tituloServicio: { fontSize: 18, fontWeight: 'bold', color: AuraColors.primary, marginBottom: 5, flex: 1 },
   detalleServicio: { color: '#666', marginBottom: 5 },
   precioServicio: { fontSize: 18, fontWeight: 'bold', color: AuraColors.gold, marginVertical: 10 },
   botonReservar: { backgroundColor: AuraColors.primary, padding: 15, borderRadius: 10, alignItems: 'center' },
@@ -296,7 +378,6 @@ const estilos = StyleSheet.create({
   boxCotizacion: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 8, marginBottom: 15, borderWidth: 1, borderColor: AuraColors.gold },
   boxPagos: { marginTop: 15, padding: 15, backgroundColor: '#f0f8ff', borderRadius: 10, borderWidth: 1, borderColor: AuraColors.primary },
   
-  // Estilos del Rastreo AliExpress
   rastroContenedor: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 20, paddingHorizontal: 10 },
   rastroPaso: { alignItems: 'center', flex: 1 },
   rastroCirculo: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', zIndex: 2 },
