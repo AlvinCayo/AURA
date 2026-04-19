@@ -184,18 +184,25 @@ export default function AdminDashboard() {
     );
   };
 
+  // --- FUNCIÓN CORREGIDA PARA ABRIR PDF EN CELULAR ---
   const openLicensePdf = async (url: string) => {
     if (!url) {
-      mostrarAlerta('Error', 'Sin documento valido');
+      mostrarAlerta('Error', 'Sin documento valido registrado');
       return;
     }
-    if (Platform.OS === 'web') {
-      window.open(url, '_blank');
-    } else {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
+    
+    // Forzamos protocolo seguro para evitar bloqueos del sistema
+    const secureUrl = url.replace('http://', 'https://');
+    
+    try {
+      if (Platform.OS === 'web') {
+        window.open(secureUrl, '_blank');
+      } else {
+        // Ejecución directa saltando la restricción de Android/iOS "canOpenURL"
+        await Linking.openURL(secureUrl);
       }
+    } catch (error) {
+      mostrarAlerta('Error', 'El dispositivo no encontró una app para abrir este documento.');
     }
   };
 
